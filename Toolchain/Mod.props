@@ -1,0 +1,15 @@
+<Project>
+  <PropertyGroup>
+    <Cities2GameDir>g:\Games\Cities.Skylines.II.v1.5.3f1\Cities.Skylines.II.v1.5.3f1\game</Cities2GameDir>
+    <Cities2ManagedDir>$(Cities2GameDir)\Cities2_Data\Managed</Cities2ManagedDir>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <ReferencePath>$(Cities2ManagedDir);$(ReferencePath)</ReferencePath>
+  </PropertyGroup>
+  
+  <Target Name="PrintPaths" BeforeTargets="BeforeBuild">
+      <Message Text="Cities2ManagedDir: $(Cities2ManagedDir)" Importance="High" />
+      <Message Text="ReferencePath: $(ReferencePath)" Importance="High" />
+  </Target>
+</Project>

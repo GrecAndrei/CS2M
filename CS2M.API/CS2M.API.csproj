@@ -1,9 +1,21 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <TargetFramework>net472</TargetFramework>
+        <LangVersion>9</LangVersion>
     </PropertyGroup>
 
-    <Import Project="$([System.Environment]::GetEnvironmentVariable('CSII_TOOLPATH', 'EnvironmentVariableTarget.Process'))\Mod.props" />
-
+    <Import Project="..\Toolchain\Mod.props"/>
+    <ItemGroup>
+        <PackageReference Include="MessagePack" Version="3.1.3"/>
+        <PackageReference Include="MessagePack.Attributeless" Version="1.0.1"/>
+        <PackageReference Include="MessagePack.UnityShims" Version="3.1.3"/>
+        <PackageReference Include="LiteNetLib" Version="1.3.1"/>
+    </ItemGroup>
+    <ItemGroup>
+        <Reference Include="UnityEngine.CoreModule">
+            <Private>false</Private>
+            <HintPath>$(Cities2ManagedDir)\UnityEngine.CoreModule.dll</HintPath>
+        </Reference>
+    </ItemGroup>
 </Project>

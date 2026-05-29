@@ -8,6 +8,17 @@ namespace CS2M.Commands.Data.Internal
     public class WorldTransferCommand : CommandBase
     {
         /// <summary>
+        ///     Monotonic transfer id per peer.
+        ///     Allows clients to ignore stale slices from previous attempts.
+        /// </summary>
+        public int TransferId { get; set; }
+
+        /// <summary>
+        ///     Zero-based index of this slice in the current transfer.
+        /// </summary>
+        public int SliceIndex { get; set; }
+
+        /// <summary>
         ///     The data of the save game slice in this packet.
         /// </summary>
         public byte[] WorldSlice { get; set; }

@@ -1,28 +1,37 @@
-import {getModule} from "cs2/modding";
-import {useLocalization} from "cs2/l10n";
+import React from 'react';
+import styles from "./input-field.module.scss";
 
-// Props: label, disabled, error, value, onChange, maxLength
-export const InputField = (props : any) => {
-    const FocusableEditorItem = getModule('game-ui/editor/widgets/item/editor-item.tsx', 'FocusableEditorItem');
-    const ErrorLabel = getModule('game-ui/editor/widgets/label/error-label.tsx', 'ErrorLabel');
-    const EditorCSS = getModule('game-ui/editor/widgets/item/editor-item.module.scss', 'classes');
-    const StringInputField = getModule('game-ui/editor/widgets/fields/string-input-field.tsx', 'StringInputField');
+interface InputFieldProps {
+    label?: string | null;
+    value: string | number;
+    onChange: (val: string) => void;
+    placeholder?: string;
+    type?: string;
+    disabled?: boolean;
+    className?: string; // Allow overriding/extending
+}
 
-    const { translate } = useLocalization();
+export const InputField = ({
+    label,
+    value,
+    onChange,
+    placeholder,
+    type = "text",
+    disabled = false,
+    className
+}: InputFieldProps) => {
 
     return (
-        <FocusableEditorItem disabled={props.disabled}>
-            <div className={EditorCSS.row}>
-                <div className={EditorCSS.label}>
-                    {translate(props.label)}
-                </div>
-                <div className={EditorCSS.control}>
-                    <StringInputField className={props.error ? EditorCSS.errorBorder : null} value={props.value} onChange={props.onChange} maxLength={props.maxLength ?? 85}>
-                    </StringInputField>
-                </div>
-            </div>
-            <ErrorLabel visible={!!props.error} className={EditorCSS.labelRight} displayName={props.error}>
-            </ErrorLabel>
-        </FocusableEditorItem>
-    )
+        <div className={styles.formGroup}>
+            {label && <label>{label}</label>}
+            <input
+                type={type}
+                className={`${styles.formControl} ${className || ''} ${disabled ? styles.inputDisabled : ''}`}
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                placeholder={placeholder}
+                disabled={disabled}
+            />
+        </div>
+    );
 }

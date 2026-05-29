@@ -1,10 +1,13 @@
 using Colossal.UI.Binding;
 using CS2M.API;
+using CS2M.API.Networking;
 using CS2M.Commands;
 using CS2M.Commands.Data.Internal;
 using CS2M.Networking;
 using Game.UI.InGame;
+using Unity.Entities;
 using System;
+using System.Linq;
 using System.Collections.Generic;
 
 namespace CS2M.UI
@@ -78,22 +81,155 @@ namespace CS2M.UI
 
         private void SendMessage()
         {
+            string rawText = LocalChatMessage.value?.Trim();
+            if (string.IsNullOrEmpty(rawText))
+            {
+                LocalChatMessage.Update(string.Empty);
+                return;
+            }
+
+            // Command Interception
+            if (rawText.StartsWith("/"))
+            {
+                HandleSlashCommand(rawText);
+                LocalChatMessage.Update(string.Empty);
+                return;
+            }
+
             string username = GetCurrentUsername();
             if (string.IsNullOrEmpty(username))
             {
                 username = "Local";
             }
 
-            PrintChatMessage(username, LocalChatMessage.value);
+            PrintChatMessage(username, rawText);
 
             ChatMessageCommand message = new ChatMessageCommand()
             {
                 Username = GetCurrentUsername(),
-                Message = LocalChatMessage.value
+                Message = rawText
             };
             CommandInternal.Instance.SendToAll(message);
 
             LocalChatMessage.Update(string.Empty);
+        }
+
+        private void HandleSlashCommand(string cmdText)
+        {
+            try
+            {
+                string[] parts = cmdText.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 0) return;
+
+                string command = parts[0].ToLower();
+                string argsText = string.Join(" ", parts.Skip(1));
+
+                switch (command)
+                {
+                    case "/help":
+                        PrintGameMessage("--- CS2M Cooperative Console Commands ---");
+                        PrintGameMessage("/help - Display all available lobby terminal actions");
+                        PrintGameMessage("/ping - Query current network latency");
+                        PrintGameMessage("/clear - Clear active chat window");
+                        PrintGameMessage("/tp <username> - Teleport camera pivot to player");
+                        PrintGameMessage("/money <amount> - [Host] Sync city funds");
+                        PrintGameMessage("/kick <username> - [Host] Disconnect player");
+                        break;
+
+                    case "/clear":
+                        ChatMessages.value.Clear();
+                        ChatMessages.TriggerUpdate();
+                        break;
+
+                    case "/ping":
+                        long latency = NetworkInterface.Instance.LocalPlayer.Latency;
+                        PrintGameMessage($"Current Latency: {(latency > 0 ? latency.ToString() : "0")}ms");
+                        break;
+
+                    case "/tp":
+                        if (parts.Length < 2)
+                        {
+                            PrintGameMessage("Usage: /tp <username>");
+                            break;
+                        }
+                        string tpTarget = parts[1];
+                        var foundTp = NetworkInterface.Instance.PlayerListJoined
+                            .FirstOrDefault(p => string.Equals(p.Username, tpTarget, StringComparison.OrdinalIgnoreCase));
+                        
+                        if (foundTp == null)
+                        {
+                            PrintGameMessage($"Player '{tpTarget}' not found in active lobby.");
+                        }
+                        else if (foundTp.PlayerId == NetworkInterface.Instance.LocalPlayer.PlayerId)
+                        {
+                            PrintGameMessage("Cannot teleport camera to yourself.");
+                        }
+                        else
+                        {
+                            CS2M.Systems.CooperativeSyncSystem.TeleportCameraToPlayer(foundTp.PlayerId);
+                            PrintGameMessage($"Snapped camera view to {foundTp.Username}.");
+                        }
+                        break;
+
+                    case "/money":
+                        if (NetworkInterface.Instance.LocalPlayer.PlayerType != PlayerType.SERVER)
+                        {
+                            PrintGameMessage("Error: Only the Host can run administrative cheats.");
+                            break;
+                        }
+                        if (parts.Length < 2 || !long.TryParse(parts[1], out long moneyVal))
+                        {
+                            PrintGameMessage("Usage: /money <amount>");
+                            break;
+                        }
+                        var moneySys = World.DefaultGameObjectInjectionWorld?.GetExistingSystemManaged<CS2M.BaseGame.Systems.MoneySyncSystem>();
+                        if (moneySys != null)
+                        {
+                            moneySys.ForceUpdateMoney(moneyVal);
+                            PrintGameMessage($"Treasury money balance synced to ${moneyVal:N0}.");
+                        }
+                        else
+                        {
+                            PrintGameMessage("Error: MoneySyncSystem not active.");
+                        }
+                        break;
+
+                    case "/kick":
+                        if (NetworkInterface.Instance.LocalPlayer.PlayerType != PlayerType.SERVER)
+                        {
+                            PrintGameMessage("Error: Only the Host has kicking authority.");
+                            break;
+                        }
+                        if (parts.Length < 2)
+                        {
+                            PrintGameMessage("Usage: /kick <username>");
+                            break;
+                        }
+                        string kickTarget = parts[1];
+                        var foundKick = NetworkInterface.Instance.PlayerListConnected
+                            .OfType<RemotePlayer>()
+                            .FirstOrDefault(p => string.Equals(p.Username, kickTarget, StringComparison.OrdinalIgnoreCase));
+
+                        if (foundKick == null)
+                        {
+                            PrintGameMessage($"Player '{kickTarget}' is not connected.");
+                        }
+                        else
+                        {
+                            foundKick.Disconnect();
+                            PrintGameMessage($"Player '{foundKick.Username}' has been disconnected by host.");
+                        }
+                        break;
+
+                    default:
+                        PrintGameMessage($"Unknown command: {command}. Type /help for a list of lobby console commands.");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                PrintGameMessage($"Command error: {ex.Message}");
+            }
         }
 
         private void PrintMessage(string sender, string msg)

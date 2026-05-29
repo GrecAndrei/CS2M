@@ -19,10 +19,15 @@ namespace CS2M.Networking
 {
     public class LocalPlayer : Player
     {
+        private const int MaxWorldLoadRetries = 2;
+
         private SlicedPacketStream _packetStream;
         private readonly SaveLoadHelper _saveLoadHelper;
         private NetworkManager _networkManager;
         private UISystem _uiSystem;
+        private int _worldLoadRetryCount;
+        private int _currentTransferId = -1;
+        private int _lastSliceIndex = -1;
 
         public LocalPlayer()
         {
@@ -125,6 +130,9 @@ namespace CS2M.Networking
                 DlcIds = DlcCompat.RequiredDLCsForSync,
             });
 
+            _worldLoadRetryCount = 0;
+            _currentTransferId = -1;
+            _lastSliceIndex = -1;
             PlayerStatus = PlayerStatus.CONNECTION_ESTABLISHED;
             return true;
         }
@@ -189,35 +197,62 @@ namespace CS2M.Networking
             _uiSystem.SetJoinErrors(errors.ToArray());
         }
 
-        public bool WaitingToJoin()
+        public bool WaitingToJoin(bool isRetry = false)
         {
-            if (PlayerStatus != PlayerStatus.CONNECTION_ESTABLISHED)
+            bool validTransition = PlayerStatus == PlayerStatus.CONNECTION_ESTABLISHED ||
+                                   (isRetry && PlayerStatus == PlayerStatus.LOADING_MAP);
+            if (!validTransition)
             {
                 return false;
             }
 
-            //TODO: Implement JoinRequest
+            if (!isRetry)
+            {
+                _worldLoadRetryCount = 0;
+            }
 
+            _packetStream = null;
+            _currentTransferId = -1;
+            _lastSliceIndex = -1;
             PlayerStatus = PlayerStatus.WAITING_TO_JOIN;
-            return DownloadingMap(); //TODO: Switch to 'return true;', when JoinRequest implemented
+            _uiSystem?.SetLoadProgress(0, 0);
+            SendToServer(new JoinRequestCommand());
+            Log.Debug(isRetry
+                ? "LocalPlayer: world transfer retry request sent to server."
+                : "LocalPlayer: join request sent to server.");
+            return true;
         }
 
         public bool DownloadingMap()
         {
-            if (PlayerStatus != PlayerStatus.WAITING_TO_JOIN)
+            if (PlayerStatus != PlayerStatus.WAITING_TO_JOIN &&
+                PlayerStatus != PlayerStatus.DOWNLOADING_MAP)
             {
                 return false;
             }
 
-            // Change state to downloading map, next step is to wait until all
-            // map packets have been received by `SliceReceived` below.
             PlayerStatus = PlayerStatus.DOWNLOADING_MAP;
+            _packetStream = null;
             _uiSystem.SetLoadProgress(0, 0);
             return true;
         }
 
         public void SliceReceived(WorldTransferCommand cmd)
         {
+            if (cmd == null || cmd.WorldSlice == null || cmd.WorldSlice.Length == 0)
+            {
+                Log.Warn("Received invalid world slice payload.");
+                return;
+            }
+
+            if (PlayerStatus == PlayerStatus.WAITING_TO_JOIN)
+            {
+                if (!DownloadingMap())
+                {
+                    return;
+                }
+            }
+
             if (PlayerStatus != PlayerStatus.DOWNLOADING_MAP)
             {
                 Log.Warn("Received world slice, but not in downloading state");
@@ -226,17 +261,61 @@ namespace CS2M.Networking
 
             if (cmd.NewTransfer)
             {
+                if (cmd.TransferId <= _currentTransferId)
+                {
+                    Log.Debug(
+                        $"Ignoring stale world transfer start. TransferId={cmd.TransferId}, CurrentTransferId={_currentTransferId}");
+                    return;
+                }
+
+                _currentTransferId = cmd.TransferId;
+                _lastSliceIndex = -1;
                 _packetStream = new SlicedPacketStream(cmd.WorldSlice.Length);
             }
-            else if (_packetStream == null)
+            else
             {
-                Log.Warn("Received world slice without initialized packet stream");
-                _uiSystem.SetJoinErrors("CS2M.JoinError.DownloadFailed");
+                if (cmd.TransferId != _currentTransferId)
+                {
+                    Log.Debug(
+                        $"Ignoring stale world slice for transfer {cmd.TransferId}. Current transfer is {_currentTransferId}.");
+                    return;
+                }
+
+                if (_packetStream == null)
+                {
+                    Log.Warn("Received world slice without initialized packet stream");
+                    _uiSystem.SetJoinErrors("CS2M.UI.JoinError.DownloadFailed");
+                    Inactive();
+                    return;
+                }
+            }
+
+            if (cmd.SliceIndex != _lastSliceIndex + 1)
+            {
+                Log.Warn(
+                    $"World transfer slice sequence mismatch. Expected {_lastSliceIndex + 1}, got {cmd.SliceIndex}.");
+                _uiSystem.SetJoinErrors("CS2M.UI.JoinError.DownloadFailed");
                 Inactive();
                 return;
             }
 
-            _packetStream.AppendSlice(cmd.WorldSlice);
+            if (!_packetStream.AppendSlice(cmd.WorldSlice))
+            {
+                Log.Warn("Failed to append world slice to packet stream.");
+                _uiSystem.SetJoinErrors("CS2M.UI.JoinError.DownloadFailed");
+                Inactive();
+                return;
+            }
+
+            if (cmd.RemainingBytes < 0)
+            {
+                Log.Warn($"Received invalid remaining byte count {cmd.RemainingBytes} for world transfer.");
+                _uiSystem.SetJoinErrors("CS2M.UI.JoinError.DownloadFailed");
+                Inactive();
+                return;
+            }
+
+            _lastSliceIndex = cmd.SliceIndex;
             _uiSystem.SetLoadProgress((int)_packetStream.Length, cmd.RemainingBytes);
 
             if (cmd.RemainingBytes == 0)
@@ -255,14 +334,49 @@ namespace CS2M.Networking
             PlayerStatus = PlayerStatus.LOADING_MAP;
             TaskManager.instance.EnqueueTask("LoadMap", async () =>
             {
-                bool success = await _saveLoadHelper.LoadGame(_packetStream);
+                bool success = false;
+                try
+                {
+                    success = await _saveLoadHelper.LoadGame(_packetStream);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"LoadGame failed with exception: {ex}");
+                }
+
                 if (success)
                 {
                     _packetStream = null; // Clean up save game memory
                     Playing();
+                    return;
                 }
-                // TODO: Error handling
+
+                _packetStream = null;
+                if (!RetryWorldLoad("save load failed"))
+                {
+                    _uiSystem?.SetJoinErrors("CS2M.UI.JoinError.DownloadFailed");
+                    Inactive();
+                }
             });
+        }
+
+        private bool RetryWorldLoad(string reason)
+        {
+            if (PlayerType != PlayerType.CLIENT)
+            {
+                return false;
+            }
+
+            if (_worldLoadRetryCount >= MaxWorldLoadRetries)
+            {
+                Log.Warn($"World load retry limit reached. Last failure reason: {reason}.");
+                return false;
+            }
+
+            _worldLoadRetryCount++;
+            Log.Warn(
+                $"Retrying world transfer ({_worldLoadRetryCount}/{MaxWorldLoadRetries}) after failure: {reason}.");
+            return WaitingToJoin(true);
         }
 
         public bool Playing()
@@ -272,7 +386,16 @@ namespace CS2M.Networking
                 return false;
             }
 
+            _worldLoadRetryCount = 0;
+            _currentTransferId = -1;
+            _lastSliceIndex = -1;
             PlayerStatus = PlayerStatus.PLAYING;
+
+            if (PlayerType == PlayerType.CLIENT)
+            {
+                SendToServer(new JoinReadyCommand());
+            }
+
             return true;
         }
 
@@ -307,21 +430,17 @@ namespace CS2M.Networking
         // PLAYING -> INACTIVE
         public bool Inactive()
         {
-            // if (PlayerStatus != PlayerStatus.PLAYING)
-            // {
-            //     return false;
-            // }
-
-            if (PlayerType == PlayerType.SERVER)
-            {
-                //TODO: Clear server variables (player list, etc.)
-            }
-            else if (PlayerType == PlayerType.CLIENT)
-            {
-                //TODO: Clean-Up client
-            }
-
             _networkManager?.Stop();
+            _networkManager = null;
+            _packetStream = null;
+            _worldLoadRetryCount = 0;
+            _currentTransferId = -1;
+            _lastSliceIndex = -1;
+
+            NetworkInterface.Instance.ResetRemotePlayers();
+
+            _uiSystem?.SetLoadProgress(0, 0);
+            _uiSystem?.SetJoinErrors();
 
             PlayerStatus = PlayerStatus.INACTIVE;
             PlayerType = PlayerType.NONE;
@@ -412,6 +531,12 @@ namespace CS2M.Networking
         public void PlayerTypeChanged(PlayerType oldPlayerType, PlayerType newPlayerType)
         {
             Log.Debug($"LocalPlayer: changed player type from {oldPlayerType} to {newPlayerType}");
+            Command.CurrentRole = newPlayerType switch
+            {
+                PlayerType.CLIENT => MultiplayerRole.Client,
+                PlayerType.SERVER => MultiplayerRole.Server,
+                _ => MultiplayerRole.None
+            };
         }
     }
 }

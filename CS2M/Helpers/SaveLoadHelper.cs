@@ -28,18 +28,24 @@ namespace CS2M.Helpers
         private readonly byte[] _sliceBuffer;
 
         private readonly List<byte[]> _slices = new();
+        private int _sliceReadIndex;
         private int _sliceReadOffset;
         private int _sliceWriteOffset;
 
         private int _streamLength;
 
-        public override bool CanRead => false;
+        public override bool CanRead => true;
         public override bool CanSeek => false;
         public override bool CanWrite => true;
         public override long Length => _streamLength;
 
         public SlicedPacketStream(int sliceLength)
         {
+            if (sliceLength <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(sliceLength), "Slice length must be greater than zero.");
+            }
+
             _sliceLength = sliceLength;
             _sliceBuffer = new byte[_sliceLength];
         }
@@ -63,17 +69,53 @@ namespace CS2M.Helpers
 
         public override long Seek(long offset, SeekOrigin origin)
         {
-            throw new NotImplementedException();
+            throw new NotSupportedException();
         }
 
         public override void SetLength(long value)
         {
-            throw new NotImplementedException();
+            throw new NotSupportedException();
         }
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            throw new NotImplementedException();
+            if (buffer == null)
+            {
+                throw new ArgumentNullException(nameof(buffer));
+            }
+
+            if (offset < 0 || count < 0 || offset + count > buffer.Length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(offset));
+            }
+
+            Flush();
+
+            int readBytes = 0;
+            while (readBytes < count && _sliceReadIndex < _slices.Count)
+            {
+                byte[] slice = _slices[_sliceReadIndex];
+                int remain = slice.Length - _sliceReadOffset;
+                if (remain <= 0)
+                {
+                    _sliceReadIndex++;
+                    _sliceReadOffset = 0;
+                    continue;
+                }
+
+                int toRead = Math.Min(remain, count - readBytes);
+                Array.Copy(slice, _sliceReadOffset, buffer, offset + readBytes, toRead);
+                _sliceReadOffset += toRead;
+                readBytes += toRead;
+
+                if (_sliceReadOffset >= slice.Length)
+                {
+                    _sliceReadIndex++;
+                    _sliceReadOffset = 0;
+                }
+            }
+
+            return readBytes;
         }
 
         public unsafe int Read(byte* pTarget, int bytes)
@@ -82,17 +124,17 @@ namespace CS2M.Helpers
             Flush();
 
             int readBytes = 0;
-            while (readBytes < bytes)
+            while (readBytes < bytes && _sliceReadIndex < _slices.Count)
             {
-                int id = _sliceReadOffset / _sliceLength;
-                int offset = _sliceReadOffset % _sliceLength;
-                if (_slices.Count <= id)
+                byte[] slice = _slices[_sliceReadIndex];
+                int remain = slice.Length - _sliceReadOffset;
+                if (remain <= 0)
                 {
-                    break;
+                    _sliceReadIndex++;
+                    _sliceReadOffset = 0;
+                    continue;
                 }
 
-                byte[] slice = _slices[id];
-                int remain = _sliceLength - offset;
                 int toRead = Math.Min(remain, bytes - readBytes);
 
                 fixed (byte* pSource = slice)
@@ -100,12 +142,18 @@ namespace CS2M.Helpers
                     // Copy the specified number of bytes from source to target.
                     for (int i = 0; i < toRead; i++)
                     {
-                        pTarget[readBytes + i] = pSource[offset + i];
+                        pTarget[readBytes + i] = pSource[_sliceReadOffset + i];
                     }
                 }
 
-                _sliceReadOffset += toRead;
                 readBytes += toRead;
+                _sliceReadOffset += toRead;
+
+                if (_sliceReadOffset >= slice.Length)
+                {
+                    _sliceReadIndex++;
+                    _sliceReadOffset = 0;
+                }
             }
 
             return readBytes;
@@ -113,9 +161,14 @@ namespace CS2M.Helpers
 
         public override void Write(byte[] buffer, int offset, int count)
         {
-            if (offset + count > buffer.Length)
+            if (buffer == null)
             {
-                return;
+                throw new ArgumentNullException(nameof(buffer));
+            }
+
+            if (offset < 0 || count < 0 || offset + count > buffer.Length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(offset));
             }
 
             _streamLength += count;
@@ -138,34 +191,31 @@ namespace CS2M.Helpers
 
         public List<byte[]> GetSlices()
         {
+            Flush();
             return _slices;
         }
 
         public bool AppendSlice(byte[] slice)
         {
-            if (slice.Length > _sliceLength)
+            if (slice == null || slice.Length == 0 || slice.Length > _sliceLength)
             {
                 return false;
             }
 
-            if (slice.Length < _sliceLength)
-            {
-                Array.Copy(slice, 0, _sliceBuffer, 0, slice.Length);
-                _slices.Add(_sliceBuffer.ToArray());
-            }
-            else
-            {
-                _slices.Add(slice);
-            }
+            // Always copy to avoid accidental mutation of buffers owned by the networking layer.
+            var copy = new byte[slice.Length];
+            Array.Copy(slice, copy, slice.Length);
+            _slices.Add(copy);
 
-            _streamLength += _sliceLength;
+            _streamLength += slice.Length;
             return true;
         }
 
         public void Clear()
         {
             _slices.Clear();
-            _sliceWriteOffset = 0;
+            _sliceReadIndex = 0;
+            _sliceReadOffset = 0;
             _sliceWriteOffset = 0;
             _streamLength = 0;
         }
@@ -200,10 +250,24 @@ namespace CS2M.Helpers
 
         public async Task<SlicedPacketStream> SaveGame(int sliceLength)
         {
+            if (sliceLength <= 0)
+            {
+                Log.Warn($"[SaveGame] Invalid slice length {sliceLength}");
+                return null;
+            }
+
             // See GameManager::Save
+            const int waitTimeoutMs = 10000;
+            var waitWatch = Stopwatch.StartNew();
             while (_saveGameSystem.Enabled)
             {
-                // TODO: Sleep?
+                if (waitWatch.ElapsedMilliseconds >= waitTimeoutMs)
+                {
+                    Log.Warn($"[SaveGame] Save system remained busy for {waitTimeoutMs}ms, aborting transfer save.");
+                    return null;
+                }
+
+                await Task.Delay(10);
             }
 
             var watch = new Stopwatch();
@@ -213,41 +277,73 @@ namespace CS2M.Helpers
             bool autoSaveEnabled = SharedSettings.instance.general.autoSave;
             SharedSettings.instance.general.autoSave = false;
 
-            // Cleanup memory
-            Resources.UnloadUnusedAssets();
-            GC.Collect();
+            try
+            {
+                // Cleanup memory
+                Resources.UnloadUnusedAssets();
+                GC.Collect();
 
-            Log.Debug($"[SaveGame] GC took {watch.ElapsedMilliseconds}ms");
-            watch.Restart();
+                Log.Debug($"[SaveGame] GC took {watch.ElapsedMilliseconds}ms");
+                watch.Restart();
 
-            // Save game to packet stream
-            var stream = new SlicedPacketStream(sliceLength);
-            _saveGameSystem.stream = stream;
-            _saveGameSystem.context = new Context(Purpose.SaveGame, Version.current, Hash128.Empty);
-            await _saveGameSystem.RunOnce();
-            stream.Flush();
+                // Save game to packet stream
+                var stream = new SlicedPacketStream(sliceLength);
+                _saveGameSystem.stream = stream;
+                _saveGameSystem.context = new Context(Purpose.SaveGame, Version.current, Hash128.Empty);
+                await _saveGameSystem.RunOnce();
+                stream.Flush();
 
-            Log.Debug($"[SaveGame] Save took {watch.ElapsedMilliseconds}ms");
+                if (stream.Length == 0)
+                {
+                    Log.Warn("[SaveGame] Save stream is empty, aborting world transfer.");
+                    return null;
+                }
 
-            // Re-enable autosave if needed
-            SharedSettings.instance.general.autoSave = autoSaveEnabled;
-            return stream;
+                Log.Debug($"[SaveGame] Save took {watch.ElapsedMilliseconds}ms");
+                return stream;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"[SaveGame] Save failed: {ex}");
+                return null;
+            }
+            finally
+            {
+                _saveGameSystem.stream = null;
+                SharedSettings.instance.general.autoSave = autoSaveEnabled;
+            }
         }
 
         public async Task<bool> LoadGame(SlicedPacketStream data)
         {
+            if (data == null || data.Length <= 0)
+            {
+                Log.Warn("[LoadGame] Refusing to load empty multiplayer stream.");
+                return false;
+            }
+
             var saveGame = new SaveWrapper();
-            ReadSystemPatch.Stream = data;
-            AssetDataPatch.OverrideAssetData = true;
-            bool result = await GameManager.instance.Load(GameMode.Game, Purpose.LoadGame, saveGame);
-            AssetDataPatch.OverrideAssetData = false;
-            ReadSystemPatch.Stream = null;
-            return result;
+            try
+            {
+                ReadSystemPatch.Stream = data;
+                AssetDataPatch.OverrideAssetData = true;
+                return await GameManager.instance.Load(GameMode.Game, Purpose.LoadGame, saveGame);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"[LoadGame] Multiplayer stream load failed: {ex}");
+                return false;
+            }
+            finally
+            {
+                AssetDataPatch.OverrideAssetData = false;
+                ReadSystemPatch.Stream = null;
+            }
         }
 
         protected override void OnUpdate()
         {
-            throw new NotImplementedException();
+            // This helper only runs on explicit async calls.
         }
     }
 

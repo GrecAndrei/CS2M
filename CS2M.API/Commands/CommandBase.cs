@@ -1,18 +1,14 @@
-﻿
-namespace CS2M.API.Commands
+﻿namespace CS2M.API.Commands
 {
     /// <summary>
-    ///     A base protobuf command that all other commands in this mod should
-    ///     extend. Provides support for serialization.
-    ///
-    ///     When creating new commands, you should create a new command ID (up to 255) which
-    ///     represents this command when sending over the network.
+    ///     A base command that all other commands in this mod should extend.
+    ///     Provides serialization via inheriting from BaseCommand with MessagePack attributes.
     /// </summary>
-    public abstract class CommandBase
+    public abstract class CommandBase : BaseCommand
     {
         /// <summary>
-        ///     The id of the sending player. -1 for the server.
+        ///     Override to specify custom command type name (defaults to class name)
         /// </summary>
-        public int SenderId { get; set; }
+        public override string CommandType => GetCommandType();
     }
 }

@@ -1,0 +1,5 @@
+<Project>
+    <Target Name="DeployMod" AfterTargets="Build">
+        <Message Text="Mod built successfully." Importance="High" />
+    </Target>
+</Project>

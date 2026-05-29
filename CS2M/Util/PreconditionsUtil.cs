@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using CS2M.Commands.Data.Internal;
@@ -74,6 +74,8 @@ namespace CS2M.Util
             PASSWORD_INCORRECT = 8,
             DLCS_MISMATCH = 16,
             MODS_MISMATCH = 32,
+            INVALID_USERNAME = 64,
+            INVALID_FORMAT = 128,
         }
     }
 }

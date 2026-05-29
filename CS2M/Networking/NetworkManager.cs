@@ -1,4 +1,4 @@
-﻿using CS2M.API;
+using CS2M.API;
 using CS2M.API.Commands;
 using CS2M.API.Networking;
 using CS2M.Commands;
@@ -6,6 +6,7 @@ using CS2M.Commands.ApiServer;
 using CS2M.Util;
 using LiteNetLib;
 using System;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -15,16 +16,26 @@ using Timer = System.Timers.Timer;
 
 namespace CS2M.Networking
 {
+    /// <summary>
+    ///     Enhanced network manager with improved error handling, thread safety, and state management
+    /// </summary>
     public class NetworkManager
     {
         private const string ConnectionKey = "CSM";
-
+        
+        // Thread-safe collections for peer tracking
+        private readonly ConcurrentDictionary<int, NetPeer> _activePeers = new();
+        private readonly object _lock = new object();
+        
         private readonly NetManager _netManager;
+        public NetManager NetManager => _netManager;
         private readonly ApiServer _apiServer;
         private ConnectionConfig _connectionConfig;
         private IPEndPoint _connectEndpoint;
         private Timer _timeout;
         private bool _pollNatEvent = false;
+        private bool _isStarted = false;
+        private bool _isShuttingDown = false;
 
         public event OnNatHolePunchSuccessful NatHolePunchSuccessfulEvent;
         public event OnNatHolePunchFailed NatHolePunchFailedEvent;
@@ -32,9 +43,18 @@ namespace CS2M.Networking
         public event OnClientConnectFailed ClientConnectFailedEvent;
         public event OnClientDisconnect ClientDisconnectEvent;
 
+        /// <summary>
+        ///     Indicates if the network manager is currently running
+        /// </summary>
+        public bool IsRunning => _isStarted && !_isShuttingDown;
+
+        /// <summary>
+        ///     Current connection state for debugging and recovery
+        /// </summary>
+        public ConnectionState ConnectionState { get; private set; } = ConnectionState.Disconnected;
+
         public NetworkManager()
         {
-            // Set up network items
             EventBasedNetListener listener = new EventBasedNetListener();
             _netManager = new NetManager(listener)
             {
@@ -44,7 +64,6 @@ namespace CS2M.Networking
             };
             _apiServer = new ApiServer(_netManager);
 
-            // Listen to events
             listener.NetworkReceiveEvent += ListenerOnNetworkReceiveEvent;
             listener.NetworkErrorEvent += ListenerOnNetworkErrorEvent;
             listener.PeerConnectedEvent += ListenerOnPeerConnectedEvent;
@@ -55,101 +74,135 @@ namespace CS2M.Networking
 
         public bool InitConnect(ConnectionConfig connectionConfig)
         {
-            Log.Trace("NetworkManager: InitConnect");
-
-            if (connectionConfig.IsTokenBased())
+            lock (_lock)
             {
-                Log.Info($"Initialize connect to server {connectionConfig.Token}...");
-            }
-            else
-            {
-                Log.Info($"Initialize connect to server at {connectionConfig.HostAddress}:{connectionConfig.Port}...");
+                if (IsRunning)
+                {
+                    Log.Warn("Cannot initialize connect while already running");
+                    return false;
+                }
             }
 
-            _connectionConfig = connectionConfig;
-
-            bool result = _netManager.Start();
-            if (!result)
+            try
             {
-                Log.Error("The client failed to start.");
+                Log.Trace("NetworkManager: InitConnect");
+
+                if (connectionConfig.IsTokenBased())
+                {
+                    Log.Info($"Initializing connect to server via token...");
+                }
+                else
+                {
+                    Log.Info($"Initializing connect to server at {connectionConfig.HostAddress}:{connectionConfig.Port}...");
+                }
+
+                _connectionConfig = connectionConfig;
+                ConnectionState = ConnectionState.Initializing;
+
+                bool result = _netManager.Start();
+                if (!result)
+                {
+                    Log.Error("Failed to start NetManager");
+                    ConnectionState = ConnectionState.Failed;
+                    return false;
+                }
+
+                _isStarted = true;
+                ConnectionState = ConnectionState.Initialized;
+                Log.Debug("NetManager started successfully");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"InitConnect failed: {ex.Message}", ex);
+                ConnectionState = ConnectionState.Failed;
                 return false;
             }
-
-            return true;
         }
 
         public bool SetupNatConnect()
         {
+            lock (_lock)
+            {
+                if (_connectionConfig == null)
+                {
+                    Log.Error("No connection config set before NAT setup");
+                    return false;
+                }
+            }
+
             Log.Trace("NetworkManager: Setting up NAT connect");
 
             IPEndPoint directEndpoint = null;
             if (!_connectionConfig.IsTokenBased())
             {
-                // Given string to IP address (resolves domain names).
                 try
                 {
                     directEndpoint = IPUtil.CreateIPEndPoint(_connectionConfig.HostAddress, _connectionConfig.Port);
                 }
-                catch
+                catch (Exception ex)
                 {
+                    Log.Error($"Failed to resolve host address: {ex.Message}");
                     return false;
                 }
             }
 
             _pollNatEvent = true;
+            ConnectionState = ConnectionState.NatHolePunching;
 
             EventBasedNatPunchListener natPunchListener = new EventBasedNatPunchListener();
-            _timeout = new Timer
+            
+            using var timeoutTimer = new Timer
             {
-                Interval = 5000,
+                Interval = 10000, // Increased timeout for NAT
                 AutoReset = false
             };
-            _timeout.Elapsed += (sender, args) =>
+            
+            timeoutTimer.Elapsed += (sender, args) =>
             {
-                Log.Debug("NAT hole punch failed, trying direct connect");
-                _pollNatEvent = false;
-                _connectEndpoint = directEndpoint;
+                Log.Debug("NAT hole punch timed out, attempting direct connection");
+                lock (_lock)
+                {
+                    _pollNatEvent = false;
+                    _connectEndpoint = directEndpoint;
+                }
                 NatHolePunchFailedEvent?.Invoke();
             };
 
-            // Callback on for each possible IP address to connect to the server.
-            // Can potentially be called multiple times (local and public IP address).
             natPunchListener.NatIntroductionSuccess += (point, type, token) =>
             {
                 Log.Debug($"NAT hole punch successful ({point.Address}:{point.Port})");
-                _pollNatEvent = false;
-                _connectEndpoint = point;
+                lock (_lock)
+                {
+                    _pollNatEvent = false;
+                    _connectEndpoint = point;
+                    ConnectionState = ConnectionState.Connected;
+                }
+                
                 bool? eventResult = NatHolePunchSuccessfulEvent?.Invoke();
                 if (eventResult != null && eventResult.Value)
                 {
-                    _timeout.Enabled = false;
+                    timeoutTimer.Enabled = false;
                 }
             };
 
-            string connect = "";
-            if (_connectionConfig.IsTokenBased())
-            {
-                connect = "token:" + _connectionConfig.Token;
-            }
-            else if (directEndpoint != null)
-            {
-                connect = "ip:" + directEndpoint.Address;
-            }
-
-            // Register listener and send request to global server
-            _netManager.NatPunchModule.Init(natPunchListener);
             try
             {
-                Log.Trace("NetworkManager: Start NAT hole punch");
+                _netManager.NatPunchModule.Init(natPunchListener);
+                
+                var apiEndpoint = IPUtil.CreateIP4EndPoint(Mod.Instance.Settings.ApiServer, Mod.Instance.Settings.GetApiServerPort());
                 _netManager.NatPunchModule.SendNatIntroduceRequest(
-                    IPUtil.CreateIP4EndPoint(Mod.Instance.Settings.ApiServer, Mod.Instance.Settings.GetApiServerPort()),
-                    connect);
-                _timeout.Start();
+                    apiEndpoint,
+                    _connectionConfig.IsTokenBased() ? $"token:{_connectionConfig.Token}" : $"ip:{(directEndpoint?.Address != null ? directEndpoint.Address.ToString() : "unknown")}");
+                
+                timeoutTimer.Start();
+                Log.Debug("NAT hole punch initiated");
             }
             catch (Exception e)
             {
-                Log.Warn(
-                    $"Could not send NAT introduction request to API server at {Mod.Instance.Settings.ApiServer}:{Mod.Instance.Settings.ApiServerPort}: {e}");
+                Log.Error($"NAT hole punch failed: {e.Message}");
+                ConnectionState = ConnectionState.Failed;
+                return false;
             }
 
             return true;
@@ -157,218 +210,408 @@ namespace CS2M.Networking
 
         public bool Connect()
         {
-            if (_connectEndpoint == null)
+            lock (_lock)
             {
-                Log.Error("No valid endpoint to connect to.");
-                return false;
+                if (_connectEndpoint == null)
+                {
+                    Log.Error("No valid endpoint available for connection");
+                    ConnectionState = ConnectionState.Failed;
+                    return false;
+                }
+
+                if (_isShuttingDown)
+                {
+                    Log.Warn("Connection attempt aborted: shutting down");
+                    return false;
+                }
             }
 
-            Log.Debug($"Connect to {_connectEndpoint.Address}:{_connectEndpoint.Port}");
+            Log.Debug($"Connecting to {_connectEndpoint.Address}:{_connectEndpoint.Port}");
+            ConnectionState = ConnectionState.Connecting;
 
             try
             {
-                _timeout = new Timer
+                using var connectTimeout = new Timer
                 {
-                    Interval = 5000,
+                    Interval = 10000,
                     AutoReset = false
                 };
-                _timeout.Elapsed += (sender, args) =>
+
+                connectTimeout.Elapsed += (sender, args) =>
                 {
-                    Log.Debug($"Connect to client ({_connectEndpoint.Address}:{_connectEndpoint.Port}) failed");
+                    Log.Debug($"Connection to client ({_connectEndpoint.Address}:{_connectEndpoint.Port}) timed out");
+                    ConnectionState = ConnectionState.Failed;
                     ClientConnectFailedEvent?.Invoke();
                 };
 
                 _netManager.Connect(_connectEndpoint, ConnectionKey);
-                _timeout.Start();
+                connectTimeout.Start();
+                return true;
             }
             catch (Exception ex)
             {
-                Log.Error($"Failed to connect to {_connectEndpoint.Address}:{_connectEndpoint.Port}", ex);
+                Log.Error($"Failed to establish connection: {ex.Message}", ex);
+                ConnectionState = ConnectionState.Failed;
                 return false;
             }
-
-            return true;
         }
 
-        public string GetConnectionPassword()
+        public void ProcessEvents()
         {
-            return _connectionConfig.Password;
-        }
+            if (_isShuttingDown || !IsRunning) return;
 
-        private void ListenerOnNetworkReceiveEvent(NetPeer peer, NetPacketReader reader, byte channel,
-            DeliveryMethod deliveryMethod)
-        {
-            CommandBase command = CommandInternal.Instance.Deserialize(reader.GetRemainingBytes());
-            CommandHandler handler = CommandInternal.Instance.GetCommandHandler(command.GetType());
-            Log.Trace($"NetworkManager: OnNetworkReceiveEvent [PeerId: {peer.Id}] {command.GetType()}");
-            if (command is PreconditionsCheckCommand)
+            try
             {
-                ((PreconditionsCheckHandler)handler).HandleOnServer((PreconditionsCheckCommand)command, peer);
+                if (_pollNatEvent)
+                {
+                    _netManager.NatPunchModule.PollEvents();
+                }
+
+                _netManager.PollEvents();
+                _apiServer.KeepAlive(_connectionConfig);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Event processing error: {ex.Message}");
+            }
+        }
+
+        public void SendToAllClients(CommandBase message)
+        {
+            try
+            {
+                byte[] data = CommandInternal.Instance.Serialize(message);
+                _netManager.SendToAll(data, DeliveryMethod.ReliableOrdered);
+                Log.Debug($"Sent {message.GetType().Name} to all clients");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Failed to send to all clients: {ex.Message}");
+            }
+        }
+
+        public void SendToClient(NetPeer peer, CommandBase message)
+        {
+            if (peer == null || peer.ConnectionState != LiteNetLib.ConnectionState.Connected)
+            {
+                Log.Warn($"Attempted to send to disconnected or null peer");
                 return;
             }
 
-            if (NetworkInterface.Instance.LocalPlayer.PlayerType == PlayerType.SERVER &&
-                !NetworkInterface.Instance.IsPeerConnected(peer))
+            try
             {
-                return;
+                byte[] data = CommandInternal.Instance.Serialize(message);
+                peer.Send(data, DeliveryMethod.ReliableOrdered);
+                
+                string logMsg = message is WorldTransferCommand wt && !wt.NewTransfer 
+                    ? $"[TRACE] Sent {message.GetType().Name} to peer {peer.Id}"
+                    : $"Sent {message.GetType().Name} to peer {peer.Id}";
+                    
+                Log.Debug(logMsg);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Failed to send to peer {peer.Id}: {ex.Message}");
+            }
+        }
+
+        public void SendToServer(CommandBase message)
+        {
+            try
+            {
+                lock (_lock)
+                {
+                    var connectedPeers = _netManager.ConnectedPeerList.ToArray();
+                    
+                    if (connectedPeers.Length == 0)
+                    {
+                        Log.Warn($"Cannot send {message.GetType().Name}: no server connected");
+                        return;
+                    }
+
+                    NetPeer server = connectedPeers[0];
+                    byte[] data = CommandInternal.Instance.Serialize(message);
+                    server.Send(data, DeliveryMethod.ReliableOrdered);
+                    Log.Debug($"Sent {message.GetType().Name} to server");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Failed to send to server: {ex.Message}");
+            }
+        }
+
+        public void SendToApiServer(ApiCommandBase message)
+        {
+            try
+            {
+                _apiServer.SendCommand(message);
+                Log.Debug($"Sent {message.GetType().Name} to API server");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Failed to send to API server: {ex.Message}");
+            }
+        }
+
+        public bool StartServer(ConnectionConfig connectionConfig)
+        {
+            lock (_lock)
+            {
+                if (IsRunning)
+                {
+                    Log.Warn("Cannot start server while already running");
+                    return false;
+                }
             }
 
-            //TODO: Check that only the relevant command could be sent in connected, not joined state
+            try
+            {
+                _connectionConfig = connectionConfig;
+                ConnectionState = ConnectionState.ServerStarting;
 
-            handler.Parse(command);
+                Log.Info($"Attempting to start server on port {_connectionConfig.Port}...");
+
+                bool result = _netManager.Start(_connectionConfig.Port);
+                
+                if (!result)
+                {
+                    Log.Error("Failed to start server");
+                    ConnectionState = ConnectionState.Failed;
+                    Stop();
+                    return false;
+                }
+
+                _isStarted = true;
+                ConnectionState = ConnectionState.ServerRunning;
+                
+                Log.Info("Server started successfully");
+                Chat.Instance.PrintGameMessage("CS2M.NetworkManager.ServerStarted".Translate());
+                
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"StartServer failed: {ex.Message}", ex);
+                ConnectionState = ConnectionState.Failed;
+                return false;
+            }
+        }
+
+        public void Stop()
+        {
+            lock (_lock)
+            {
+                if (!_isStarted)
+                {
+                    return;
+                }
+
+                _isShuttingDown = true;
+            }
+
+            try
+            {
+                Log.Info("Stopping NetworkManager...");
+
+                // Clear active peers
+                _activePeers.Clear();
+
+                // Stop timers
+                _timeout?.Stop();
+                _timeout?.Dispose();
+                _timeout = null;
+
+                // Stop NAT punching
+                _pollNatEvent = false;
+
+                // Stop the network manager
+                _netManager.Stop();
+
+                // Reset state
+                _isStarted = false;
+                _isShuttingDown = false;
+                _connectEndpoint = null;
+                _connectionConfig = null;
+                ConnectionState = ConnectionState.Disconnected;
+
+                Log.Info("NetworkManager stopped successfully");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Error during stop: {ex.Message}", ex);
+            }
+        }
+
+        private void ListenerOnNetworkReceiveEvent(NetPeer peer, NetPacketReader reader, byte channel, DeliveryMethod deliveryMethod)
+        {
+            try
+            {
+                // Track peer activity
+                lock (_lock)
+                {
+                    _activePeers.AddOrUpdate(peer.Id, peer, (id, old) => peer);
+                }
+
+                CommandBase command = CommandInternal.Instance.Deserialize(reader.GetRemainingBytes());
+                if (command == null)
+                {
+                    Log.Warn($"Received null command from peer {peer.Id}");
+                    return;
+                }
+
+                CommandHandler handler = CommandInternal.Instance.GetCommandHandler(command.GetType());
+                if (handler == null)
+                {
+                    Log.Warn($"No handler found for {command.GetType()}");
+                    return;
+                }
+
+                Log.Trace($"Processing {command.GetType().Name} from peer {peer.Id}");
+
+                // Route special commands
+                switch (command)
+                {
+                    case PreconditionsCheckCommand preconds:
+                        if (handler is PreconditionsCheckHandler h)
+                            h.HandleOnServer(preconds, peer);
+                        break;
+                    case JoinRequestCommand joinReq:
+                        if (handler is JoinRequestHandler jrh)
+                            jrh.HandleOnServer(joinReq, peer);
+                        break;
+                    case JoinReadyCommand readyCmd:
+                        if (handler is JoinReadyHandler jrh2)
+                            jrh2.HandleOnServer(readyCmd, peer);
+                        break;
+                    default:
+                        // Validate sender for server
+                        if (NetworkInterface.Instance.LocalPlayer.PlayerType == PlayerType.SERVER)
+                        {
+                            if (!NetworkInterface.Instance.IsPeerConnected(peer))
+                            {
+                                Log.Warn($"Dropping command from unauthorized peer {peer.Id}");
+                                return;
+                            }
+                            
+                            if (!NetworkInterface.Instance.IsPeerJoined(peer))
+                            {
+                                Log.Warn($"Dropping command from non-joined peer {peer.Id}");
+                                return;
+                            }
+                        }
+                        
+                        handler.Parse(command);
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Failed to process packet from peer {peer?.Id}: {ex.Message}");
+                Log.Trace(ex.ToString());
+            }
         }
 
         private void ListenerOnPeerConnectedEvent(NetPeer peer)
         {
-            Log.Trace($"NetworkManager: OnPeerConnectedEvent [PeerId: {peer.Id}]");
+            Log.Debug($"Peer connected: {peer.Id}");
+            
+            lock (_lock)
+            {
+                _activePeers.TryAdd(peer.Id, peer);
+            }
+
             if (NetworkInterface.Instance.LocalPlayer.PlayerType == PlayerType.CLIENT)
             {
-                _timeout.Enabled = false;
+                _timeout?.Stop();
+                ConnectionState = ConnectionState.Connected;
                 ClientConnectSuccessfulEvent?.Invoke();
             }
             else if (NetworkInterface.Instance.LocalPlayer.PlayerType == PlayerType.SERVER)
             {
-                _timeout = new Timer
+                using var timeout = new Timer
                 {
-                    Interval = 5000,
+                    Interval = 10000,
                     AutoReset = false
                 };
-                _timeout.Elapsed += (sender, args) =>
+
+                timeout.Elapsed += (sender, args) =>
                 {
                     if (NetworkInterface.Instance.GetPlayerByPeer(peer) == null)
                     {
-                        Log.Warn(
-                            $"Client peer {peer.Id} did not register within {_timeout.Interval / 1000} seconds. Disconnecting peer.");
+                        Log.Warn($"Peer {peer.Id} did not register within 10 seconds, disconnecting");
                         peer.Disconnect();
                     }
                 };
-                _timeout.Start();
+
+                timeout.Start();
             }
         }
 
         private void ListenerOnPeerDisconnectedEvent(NetPeer peer, DisconnectInfo disconnectInfo)
         {
-            Log.Trace($"NetworkManager: OnPeerDisconnectedEvent [PeerId: {peer.Id}]");
+            Log.Debug($"Peer disconnected: {peer.Id}, Info: {disconnectInfo.Reason}");
+            
+            lock (_lock)
+            {
+                _activePeers.TryRemove(peer.Id, out _);
+            }
+
             if (NetworkInterface.Instance.LocalPlayer.PlayerType == PlayerType.CLIENT)
             {
-                // TODO: Use disconnect info
+                ConnectionState = ConnectionState.Disconnected;
                 ClientDisconnectEvent?.Invoke();
             }
             else if (NetworkInterface.Instance.LocalPlayer.PlayerType == PlayerType.SERVER)
             {
                 NetworkInterface.Instance.GetPlayerByPeer(peer)?.HandleDisconnect();
-                // TODO: Handle peer disconnect on server
+                NetworkInterface.Instance.PlayerDisconnected(peer);
             }
         }
 
         private void ListenerOnNetworkErrorEvent(IPEndPoint endpoint, SocketError socketError)
         {
             string source = endpoint != null ? $"{endpoint.Address}:{endpoint.Port}" : "<Unconnected>";
-            Log.Error($"Received an error from {source}. Code: {socketError}");
+            Log.Error($"Network error from {source}: {socketError}");
+            ConnectionState = ConnectionState.Failed;
         }
 
         private void ListenerOnNetworkLatencyUpdateEvent(NetPeer peer, int latency)
         {
-            Log.Trace($"NetworkManager: OnNetworkLatencyUpdateEvent [PeerId: {peer.Id}, Latency: {latency}]");
+            Log.Trace($"Latency update for peer {peer.Id}: {latency}ms");
+        }
+
+        public string GetConnectionPassword()
+        {
+            return _connectionConfig?.Password;
         }
 
         private void ListenerOnConnectionRequestEvent(ConnectionRequest request)
         {
-            Log.Trace("NetworkManager: OnConnectionRequestEvent");
+            Log.Debug("Incoming connection request");
             request.AcceptIfKey(ConnectionKey);
         }
 
         public delegate bool OnNatHolePunchSuccessful();
-
         public delegate bool OnNatHolePunchFailed();
-
         public delegate bool OnClientConnectSuccessful();
-
         public delegate bool OnClientConnectFailed();
-
         public delegate bool OnClientDisconnect();
+    }
 
-        public void ProcessEvents()
-        {
-            // Poll for new events
-            if (_pollNatEvent)
-            {
-                _netManager.NatPunchModule.PollEvents();
-            }
-
-            _netManager.PollEvents();
-            // Trigger keepalive to api server
-            _apiServer.KeepAlive(_connectionConfig);
-        }
-
-        public void SendToAllClients(CommandBase message)
-        {
-            _netManager.SendToAll(CommandInternal.Instance.Serialize(message), DeliveryMethod.ReliableOrdered);
-
-            Log.Debug($"Sending {message.GetType().Name} to all clients");
-        }
-
-        public void SendToClient(NetPeer peer, CommandBase message)
-        {
-            peer.Send(CommandInternal.Instance.Serialize(message), DeliveryMethod.ReliableOrdered);
-
-            if (message is WorldTransferCommand { NewTransfer: false })
-            {
-                // Due to performance reasons, log "WorldTransferCommand" only on trace level (after logging once)
-                Log.Trace($"Sending {message.GetType().Name} to client at {peer.Address}:{peer.Port}");
-            }
-            else
-            {
-                Log.Debug($"Sending {message.GetType().Name} to client at {peer.Address}:{peer.Port}");
-            }
-        }
-
-        public void SendToServer(CommandBase message)
-        {
-            NetPeer server = _netManager.ConnectedPeerList[0];
-            server.Send(CommandInternal.Instance.Serialize(message), DeliveryMethod.ReliableOrdered);
-
-            Log.Debug($"Sending {message.GetType().Name} to server");
-        }
-
-        public void SendToApiServer(ApiCommandBase message)
-        {
-            _apiServer.SendCommand(message);
-            Log.Debug($"Sending {message.GetType().Name} to api server");
-        }
-
-        public bool StartServer(ConnectionConfig connectionConfig)
-        {
-            _connectionConfig = connectionConfig;
-
-            // Let the user know that we are trying to start the server
-            Log.Info($"Attempting to start server on port {_connectionConfig.Port}...");
-
-            // Attempt to start the server
-            bool result = _netManager.Start(_connectionConfig.Port);
-
-            // If the server has not started, tell the user and return false.
-            if (!result)
-            {
-                Log.Error("The server failed to start.");
-                Stop(); // Make sure the server is fully stopped
-                return false;
-            }
-
-            //TODO: NAT UPnP open Port
-            //TODO: Check if port is reachable
-
-            // Update the console to let the user know the server is running
-            Log.Info("The server has started.");
-            Chat.Instance.PrintGameMessage("CS2M.NetworkManager.ServerStarted".Translate());
-
-            return true;
-        }
-
-        public void Stop()
-        {
-            _netManager.Stop();
-            Log.Info("NetworkManager stopped.");
-        }
+    /// <summary>
+    ///     Represents the current state of network connection
+    /// </summary>
+    public enum ConnectionState
+    {
+        Disconnected,
+        Initializing,
+        Initialized,
+        Connecting,
+        Connected,
+        NatHolePunching,
+        ServerStarting,
+        ServerRunning,
+        Failed
     }
 }

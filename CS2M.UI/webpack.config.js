@@ -5,13 +5,10 @@ const {CSSPresencePlugin} = require("./tools/css-presence");
 const TerserPlugin = require("terser-webpack-plugin");
 const gray = (text) => `\x1b[90m${text}\x1b[0m`;
 
-const CSII_USERDATAPATH = process.env.CSII_USERDATAPATH;
+const CSII_USERDATAPATH = process.env.CSII_USERDATAPATH || "C:/Users/Alexander/AppData/LocalLow/Colossal Order/Cities Skylines II"; 
 
-if (!CSII_USERDATAPATH) {
-    throw "CSII_USERDATAPATH environment variable is not set, ensure the CSII Modding Toolchain is installed correctly";
-}
-
-const OUTPUT_DIR = `${CSII_USERDATAPATH}/Mods/${MOD.id}`;
+// If still undefined (shouldn't be with fallback), default to local dist
+const OUTPUT_DIR = CSII_USERDATAPATH ? `${CSII_USERDATAPATH}/Mods/${MOD.id}` : "dist";
 
 const banner = `
  * Cities: Skylines II UI Module

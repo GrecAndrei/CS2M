@@ -32,19 +32,21 @@ export const ChatPanel = (e: any) => {
     const chatMessages = useValue(chatMessagesBinding);
     const currentUsername = useValue(currentUsernameBinding);
     const localChatMessage = useValue(localChatMessageBinding);
+    const canSend = !!localChatMessage?.trim();
 
     return (
         <SocialPanelLayout className={styles.socialPanelLayoutContent}>
             <Panel theme={LightOpaqueTheme}
                    header={translate("CS2M.UI.ChatPanel.Header")}
                    transitionSounds={TransitionSounds}
-                   className={LifePathPanelStyle.lifePathPanel}
+                   className={styles.chatPanel}
                    contentClassName={LifePathPanelStyle.content}
                    onClose={e.onClose}>
-                <Scrollable autoScroll={true} smooth={true}>
-                    {chatMessages?.map(message => (
+                <Scrollable autoScroll={true} smooth={true} className={styles.messagesScroll}>
+                    {chatMessages?.map((message, index) => (
                         <div
-                            className={`${message.user === currentUsername ? "styles.chatBubble-right" : "styles.chatBubble"}`}>
+                            key={`${message.timestamp}-${message.user}-${index}`}
+                            className={message.user === currentUsername ? styles['chatBubble-right'] : styles.chatBubble}>
                             <div className={styles.content}>
                                 <div className={styles.header}>
                                     <button className={styles.username}>{message.user}</button>
@@ -52,9 +54,7 @@ export const ChatPanel = (e: any) => {
                                 </div>
 
                                 <div className={styles.message}>
-                                    <p cohinline="cohinline">
-                                        {message.text}
-                                    </p>
+                                    <p>{message.text}</p>
                                 </div>
                             </div>
                         </div>
@@ -62,16 +62,18 @@ export const ChatPanel = (e: any) => {
                 </Scrollable>
 
                 <PanelSection>
-                    <StringInputField
-                        className={styles.messageInput}
-                        value={localChatMessage}
-                        placeholder={translate("CS2M.UI.ChatPanel.ChatMessageInput")}
-                        onChange={(val: any) => {
-                            setVal("SetLocalChatMessage", val)
-                        }}/>
-                    <Button onClick={sendChatMessage}>
-                        {translate("CS2M.UI.ChatPanel.SendMessage")}
-                    </Button>
+                    <div className={styles.composerRow}>
+                        <StringInputField
+                            className={styles.messageInput}
+                            value={localChatMessage}
+                            placeholder={translate("CS2M.UI.ChatPanel.ChatMessageInput")}
+                            onChange={(val: any) => {
+                                setVal("SetLocalChatMessage", val)
+                            }}/>
+                        <Button className={styles.sendButton} onClick={sendChatMessage} disabled={!canSend}>
+                            {translate("CS2M.UI.ChatPanel.SendMessage")}
+                        </Button>
+                    </div>
                 </PanelSection>
             </Panel>
         </SocialPanelLayout>

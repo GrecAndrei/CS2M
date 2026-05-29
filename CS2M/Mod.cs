@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using Colossal.IO.AssetDatabase;
 using CS2M.Commands;
 using CS2M.Commands.ApiServer;
@@ -69,6 +69,13 @@ namespace CS2M
             // Set up systems
             updateSystem.UpdateBefore<NetworkingSystem>(SystemUpdatePhase.PreSimulation);
             updateSystem.UpdateAt<UISystem>(SystemUpdatePhase.UIUpdate);
+            updateSystem.UpdateAt<CS2M.Systems.EconomyInspectorSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAt<CS2M.Systems.CooperativeSyncSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAt<CS2M.BaseGame.Systems.TimeSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAt<CS2M.BaseGame.Systems.MoneySyncSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAt<CS2M.BaseGame.Systems.FrameSyncSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAt<CS2M.BaseGame.Systems.XPMilestoneSyncSystem>(SystemUpdatePhase.GameSimulation);
+
             Log.Info("Loading complete");
         }
 

@@ -1,33 +1,38 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <TargetFramework>net472</TargetFramework>
+        <LangVersion>9</LangVersion>
     </PropertyGroup>
 
     <ItemGroup>
       <ProjectReference Include="..\CS2M.API\CS2M.API.csproj" />
     </ItemGroup>
 
-    <Import Project="$([System.Environment]::GetEnvironmentVariable('CSII_TOOLPATH', 'EnvironmentVariableTarget.Process'))\Mod.props"/>
+    <Import Project="..\Toolchain\Mod.props"/>
 
     <ItemGroup>
         <Reference Include="Colossal.Core">
-          <HintPath>..\..\..\..\games\steam\steamapps\common\Cities Skylines II\Cities2_Data\Managed\Colossal.Core.dll</HintPath>
+          <HintPath>$(Cities2ManagedDir)\Colossal.Core.dll</HintPath>
         </Reference>
         <Reference Include="Colossal.Logging">
             <Private>false</Private>
+            <HintPath>..\libs\Colossal.Logging.dll</HintPath>
         </Reference>
         <Reference Include="Game">
-          <HintPath>..\..\..\..\games\steam\steamapps\common\Cities Skylines II\Cities2_Data\Managed\Game.dll</HintPath>
+          <HintPath>$(Cities2ManagedDir)\Game.dll</HintPath>
         </Reference>
         <Reference Include="Unity.Collections">
-          <HintPath>..\..\..\..\games\steam\steamapps\common\Cities Skylines II\Cities2_Data\Managed\Unity.Collections.dll</HintPath>
+          <HintPath>$(Cities2ManagedDir)\Unity.Collections.dll</HintPath>
         </Reference>
         <Reference Include="Unity.Entities">
-          <HintPath>..\..\..\..\games\steam\steamapps\common\Cities Skylines II\Cities2_Data\Managed\Unity.Entities.dll</HintPath>
+          <HintPath>$(Cities2ManagedDir)\Unity.Entities.dll</HintPath>
+        </Reference>
+        <Reference Include="Unity.Mathematics">
+          <HintPath>$(Cities2ManagedDir)\Unity.Mathematics.dll</HintPath>
         </Reference>
         <Reference Include="UnityEngine.CoreModule">
-          <HintPath>..\..\..\..\games\steam\steamapps\common\Cities Skylines II\Cities2_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+          <HintPath>$(Cities2ManagedDir)\UnityEngine.CoreModule.dll</HintPath>
         </Reference>
     </ItemGroup>
 </Project>

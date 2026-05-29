@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <OutputType>Library</OutputType>
@@ -12,48 +12,65 @@
     </PropertyGroup>
 
     <!--Imports must be after PropertyGroup block-->
-    <Import Project="$([System.Environment]::GetEnvironmentVariable('CSII_TOOLPATH', 'EnvironmentVariableTarget.Process'))\Mod.props"/>
-    <Import Project="$([System.Environment]::GetEnvironmentVariable('CSII_TOOLPATH', 'EnvironmentVariableTarget.Process'))\Mod.targets"/>
+    <Import Project="..\Toolchain\Mod.props"/>
+    <Import Project="..\Toolchain\Mod.targets"/>
 
     <ItemGroup>
         <Reference Include="Colossal.UI.Binding">
             <Private>false</Private>
+             <HintPath>$(Cities2ManagedDir)\Colossal.UI.Binding.dll</HintPath>
         </Reference>
         <Reference Include="Game">
             <Private>false</Private>
+            <HintPath>$(Cities2ManagedDir)\Game.dll</HintPath>
         </Reference>
         <Reference Include="Colossal.Core">
             <Private>false</Private>
+            <HintPath>$(Cities2ManagedDir)\Colossal.Core.dll</HintPath>
         </Reference>
         <Reference Include="Colossal.Logging">
             <Private>false</Private>
+            <HintPath>..\libs\Colossal.Logging.dll</HintPath>
         </Reference>
         <Reference Include="Colossal.Localization">
             <Private>false</Private>
+            <HintPath>$(Cities2ManagedDir)\Colossal.Localization.dll</HintPath>
         </Reference>
         <Reference Include="Colossal.IO.AssetDatabase">
             <Private>false</Private>
+             <HintPath>$(Cities2ManagedDir)\Colossal.IO.AssetDatabase.dll</HintPath>
         </Reference>
         <Reference Include="UnityEngine.CoreModule">
             <Private>false</Private>
+             <HintPath>$(Cities2ManagedDir)\UnityEngine.CoreModule.dll</HintPath>
+        </Reference>
+        <Reference Include="UnityEngine.InputLegacyModule">
+            <Private>false</Private>
+             <HintPath>$(Cities2ManagedDir)\UnityEngine.InputLegacyModule.dll</HintPath>
         </Reference>
         <Reference Include="Unity.Burst">
             <Private>false</Private>
+             <HintPath>$(Cities2ManagedDir)\Unity.Burst.dll</HintPath>
         </Reference>
         <Reference Include="Unity.Collections">
             <Private>false</Private>
+             <HintPath>$(Cities2ManagedDir)\Unity.Collections.dll</HintPath>
         </Reference>
         <Reference Include="Unity.Entities">
             <Private>false</Private>
+             <HintPath>$(Cities2ManagedDir)\Unity.Entities.dll</HintPath>
         </Reference>
         <Reference Include="Unity.Mathematics">
             <Private>false</Private>
+             <HintPath>$(Cities2ManagedDir)\Unity.Mathematics.dll</HintPath>
         </Reference>
         <Reference Include="Colossal.PSI.Common">
             <Private>false</Private>
+             <HintPath>$(Cities2ManagedDir)\Colossal.PSI.Common.dll</HintPath>
         </Reference>
         <Reference Include="Colossal.AssetPipeline">
             <Private>false</Private>
+             <HintPath>$(Cities2ManagedDir)\Colossal.AssetPipeline.dll</HintPath>
         </Reference>
     </ItemGroup>
 
@@ -70,8 +87,8 @@
     </ItemGroup>
 
     <ItemGroup>
-        <None Include="$(ModPropsFile)" Link="Properties\Mod.props"/>
-        <None Include="$(ModTargetsFile)" Link="Properties\Mod.targets"/>
+        <None Include="..\Toolchain\Mod.props" Link="Properties\Mod.props"/>
+        <None Include="..\Toolchain\Mod.targets" Link="Properties\Mod.targets"/>
     </ItemGroup>
 
     <ItemGroup>
@@ -111,9 +128,7 @@
         <PackAssemblies Include="$(OutputPath)\System.Numerics.Vectors.dll"/>
         <PackAssemblies Include="$(OutputPath)\System.Runtime.CompilerServices.Unsafe.dll"/>
         <PackAssemblies Include="$(OutputPath)\System.Threading.Tasks.Extensions.dll"/>
-        <PackAssemblies Include="$(OutputPath)\System.Reflection.Emit.dll"/>
-        <PackAssemblies Include="$(OutputPath)\System.Reflection.Emit.Lightweight.dll"/>
-        <PackAssemblies Include="$(OutputPath)\System.Reflection.Emit.ILGeneration.dll"/>
+
         <PackAssemblies Include="$(OutputPath)\0Harmony.dll"/>
     </ItemGroup>
 
@@ -131,10 +146,10 @@
             <InputAssemblies Include="@(PackAssemblies)"/>
         </ItemGroup>
 
-        <ILRepack Parallel="true" Internalize="true" InputAssemblies="@(InputAssemblies)" LibraryPath="$(AssemblySearchPaths)" TargetKind="Dll" OutputFile="$(OutputPath)\$(AssemblyName).dll"/>
+        <ILRepack Parallel="true" Internalize="true" InputAssemblies="@(InputAssemblies)" LibraryPath="$(Cities2ManagedDir);$(AssemblySearchPaths)" TargetKind="Dll" OutputFile="$(OutputPath)\$(AssemblyName).dll"/>
     </Target>
 
-    <Target Name="DeployWIP" AfterTargets="ILRepacker" Condition="'$(NeedBuild)'">
+    <Target Name="DeployWIP" AfterTargets="ILRepacker" Condition="'$(NeedBuild)' == 'true'">
         <ItemGroup>
             <FilesToDeploy Include="$(OutDir)\**\*.*" Exclude="@(PackAssemblies)"/>
         </ItemGroup>
@@ -144,7 +159,7 @@
     </Target>
 
     <Target Name="BuildUI" AfterTargets="ILRepacker">
-        <Exec Command="npm run build" WorkingDirectory="$(ProjectDir)/../CS2M.UI"/>
+        <Exec Command="set &quot;CSII_USERDATAPATH=../dist&quot; &amp;&amp; npm run build" WorkingDirectory="$(ProjectDir)/../CS2M.UI"/>
     </Target>
 
 </Project>

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -170,10 +170,10 @@ namespace CS2M.Commands
                 foreach (Type type in packets)
                 {
                     var handler = (CommandHandler)Activator.CreateInstance(type);
-                    bool added = _cmdMapping.TryAdd(handler.GetDataType(), handler);
+                    bool added = _cmdMapping.TryAdd(handler.CommandType, handler);
                     if (!added)
                     {
-                        Log.Debug($"Handler for {handler.GetDataType()} already exists");
+                        Log.Debug($"Handler for {handler.CommandType} already exists");
                     }
                 }
 

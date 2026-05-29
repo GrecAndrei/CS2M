@@ -7,7 +7,7 @@
         <IsTestProject>true</IsTestProject>
     </PropertyGroup>
 
-    <Import Project="$([System.Environment]::GetEnvironmentVariable('CSII_TOOLPATH', 'EnvironmentVariableTarget.Process'))\Mod.props"/>
+    <Import Project="..\Toolchain\Mod.props"/>
 
     <ItemGroup>
         <PackageReference Include="MessagePack" Version="3.1.3">
