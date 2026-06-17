@@ -1,0 +1,48 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CS2M.ApiServer.Core", "src\CS2M.ApiServer.Core\CS2M.ApiServer.Core.csproj", "{B1A1C8E0-1000-4001-8001-000000000001}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CS2M.ApiServer.Protocol", "src\CS2M.ApiServer.Protocol\CS2M.ApiServer.Protocol.csproj", "{B1A1C8E0-1000-4001-8001-000000000002}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CS2M.ApiServer.Storage", "src\CS2M.ApiServer.Storage\CS2M.ApiServer.Storage.csproj", "{B1A1C8E0-1000-4001-8001-000000000003}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CS2M.ApiServer.Workers", "src\CS2M.ApiServer.Workers\CS2M.ApiServer.Workers.csproj", "{B1A1C8E0-1000-4001-8001-000000000004}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CS2M.ApiServer.Host", "src\CS2M.ApiServer.Host\CS2M.ApiServer.Host.csproj", "{B1A1C8E0-1000-4001-8001-000000000005}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CS2M.ApiServer.Tests", "tests\CS2M.ApiServer.Tests\CS2M.ApiServer.Tests.csproj", "{B1A1C8E0-1000-4001-8001-000000000006}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B1A1C8E0-1000-4001-8001-000000000001}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000001}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000001}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000001}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000002}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000002}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000002}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000002}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000003}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000003}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000003}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000003}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000004}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000004}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000004}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000004}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000005}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000005}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000005}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000005}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000006}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000006}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000006}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1A1C8E0-1000-4001-8001-000000000006}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

@@ -1,6 +1,10 @@
 bin/
 obj/
 /packages/
+CS2M.ApiServer/**/bin/
+CS2M.ApiServer/**/obj/
+CS2M.ApiServer/**/TestResults/
+CS2M.ApiServer/**/.vs/
 riderModule.iml
 /_ReSharper.Caches/
 **/node_modules/

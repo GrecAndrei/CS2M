@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>CS2M.ApiServer.Workers</RootNamespace>
+    <AssemblyName>CS2M.ApiServer.Workers</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12.0</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CS2M.ApiServer.Core\CS2M.ApiServer.Core.csproj" />
+    <ProjectReference Include="..\CS2M.ApiServer.Protocol\CS2M.ApiServer.Protocol.csproj" />
+    <ProjectReference Include="..\CS2M.ApiServer.Storage\CS2M.ApiServer.Storage.csproj" />
+  </ItemGroup>
+
+</Project>
