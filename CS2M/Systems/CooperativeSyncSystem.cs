@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Text;
 using System.Globalization;
 using Unity.Entities;
@@ -7,7 +8,6 @@ using Unity.Mathematics;
 using UnityEngine;
 using CS2M.API;
 using CS2M.API.Networking;
-using CS2M.API.Commands;
 using CS2M.BaseGame.Commands;
 using CS2M.Helpers;
 using CS2M.Networking;
@@ -45,12 +45,96 @@ namespace CS2M.Systems
         public long Timestamp { get; set; }
     }
 
+    internal static class Vector3Bridge
+    {
+        private static readonly Type _vector3Type = typeof(Camera).Assembly.GetType("UnityEngine.Vector3");
+        private static readonly ConstructorInfo _ctor = _vector3Type?.GetConstructor(new[] { typeof(float), typeof(float), typeof(float) });
+        private static readonly FieldInfo _xField = _vector3Type?.GetField("x");
+        private static readonly FieldInfo _yField = _vector3Type?.GetField("y");
+        private static readonly FieldInfo _zField = _vector3Type?.GetField("z");
+        private static readonly MethodInfo _worldToScreenPoint = _vector3Type != null ? typeof(Camera).GetMethod("WorldToScreenPoint", new[] { _vector3Type }) : null;
+        private static readonly FieldInfo _rayOriginField = typeof(Ray).GetField("m_Origin");
+        private static readonly FieldInfo _rayDirectionField = typeof(Ray).GetField("m_Direction");
+
+        public static bool TryWorldToScreenPoint(Camera cam, float3 worldPos, float screenW, float screenH, out float screenX, out float screenY)
+        {
+            screenX = 0f;
+            screenY = 0f;
+            if (cam == null || _ctor == null || _worldToScreenPoint == null || screenW <= 0f || screenH <= 0f)
+                return false;
+
+            object v3 = _ctor.Invoke(new object[] { worldPos.x, worldPos.y, worldPos.z });
+            object sp = _worldToScreenPoint.Invoke(cam, new[] { v3 });
+            float z = (float)_zField.GetValue(sp);
+            if (z > 0f)
+            {
+                float x = (float)_xField.GetValue(sp);
+                float y = (float)_yField.GetValue(sp);
+                screenX = (x / screenW) * 100f;
+                screenY = (1f - (y / screenH)) * 100f;
+                return true;
+            }
+            return false;
+        }
+
+        public static float3 RaycastToGround(Ray ray)
+        {
+            if (_rayOriginField == null || _rayDirectionField == null || _xField == null || _yField == null || _zField == null)
+                return float3.zero;
+            object originObj = _rayOriginField.GetValue(ray);
+            object dirObj = _rayDirectionField.GetValue(ray);
+            float ox = (float)_xField.GetValue(originObj);
+            float oy = (float)_yField.GetValue(originObj);
+            float oz = (float)_zField.GetValue(originObj);
+            float dx = (float)_xField.GetValue(dirObj);
+            float dy = (float)_yField.GetValue(dirObj);
+            float dz = (float)_zField.GetValue(dirObj);
+            if (Math.Abs(dy) <= 1e-6f) return float3.zero;
+            float t = -oy / dy;
+            if (t < 0f) return float3.zero;
+            return new float3(ox + dx * t, oy + dy * t, oz + dz * t);
+        }
+
+        public static float3 GetTransformPosition(Transform t)
+        {
+            object pos = _rayOriginField != null ? null : null;
+            PropertyInfo p = typeof(Transform).GetProperty("position");
+            object v = p?.GetValue(t);
+            if (v == null || _xField == null) return float3.zero;
+            return new float3((float)_xField.GetValue(v), (float)_yField.GetValue(v), (float)_zField.GetValue(v));
+        }
+    }
+
     public partial class CooperativeSyncSystem : SystemBase
     {
-        private static readonly Dictionary<int, RemoteCursorState> _remoteCursors = new();
-        private static readonly List<RemotePingState> _remotePings = new();
-        private static readonly List<CooperativeActivity> _activityLog = new();
-        private static readonly object LockObj = new();
+        private static CooperativeSyncSystem _instance;
+
+        private readonly Dictionary<int, RemoteCursorState> _remoteCursors = new();
+        private readonly Queue<RemotePingState> _remotePings = new();
+        private readonly Queue<CooperativeActivity> _activityLog = new();
+        private readonly object _lockObj = new();
+
+        private const int MaxRemoteCursors = 32;
+        private const int MaxActivityLog = 80;
+        private const int UiUpdateIntervalFrames = 6;
+
+        private static readonly Lazy<Type> _cameraControllerSystemType = new Lazy<Type>(() =>
+        {
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (assembly.GetName().Name == "Game")
+                {
+                    foreach (var type in assembly.GetTypes())
+                    {
+                        if (type.Name == "CameraControllerSystem")
+                        {
+                            return type;
+                        }
+                    }
+                }
+            }
+            return null;
+        });
 
         private long _lastCursorBroadcastTime;
         private float3 _lastBroadcastedPosition;
@@ -58,24 +142,42 @@ namespace CS2M.Systems
         private string _lastBroadcastedTool = "";
         private string _lastBroadcastedPrefab = "";
 
+        private int _uiUpdateFrameCounter;
+
+        private Action<string, string, float, float, float> _activityHandler;
+
         protected override void OnCreate()
         {
             base.OnCreate();
+            _instance = this;
             Log.Info("CooperativeSyncSystem: Initialized");
-            
-            // Bind decouple registry to receive activities from CS2M.BaseGame or API levels
-            CS2M.API.CooperativeActivityRegistry.OnActivityRegistered = (username, actionText, x, y, z) =>
+
+            _activityHandler = (username, actionText, x, y, z) =>
             {
                 RegisterActivity(username, actionText, new float3(x, y, z));
             };
+            CS2M.API.CooperativeActivityRegistry.OnActivityRegistered += _activityHandler;
+        }
+
+        protected override void OnDestroy()
+        {
+            if (_activityHandler != null)
+            {
+                CS2M.API.CooperativeActivityRegistry.OnActivityRegistered -= _activityHandler;
+                _activityHandler = null;
+            }
+            if (_instance == this)
+            {
+                _instance = null;
+            }
+            base.OnDestroy();
         }
 
         protected override void OnUpdate()
         {
-            // Only update when actively playing in multiplayer
             if (NetworkInterface.Instance.LocalPlayer.PlayerStatus != PlayerStatus.PLAYING)
             {
-                lock (LockObj)
+                lock (_lockObj)
                 {
                     _remoteCursors.Clear();
                     _remotePings.Clear();
@@ -84,53 +186,56 @@ namespace CS2M.Systems
                 return;
             }
 
-            // Handle map ping hotkey 'G'
             if (Input.GetKeyDown(KeyCode.G))
             {
                 TriggerLocalPing();
             }
 
-            // Manage remote pings expiration timers
             float dt = UnityEngine.Time.deltaTime;
-            lock (LockObj)
+            lock (_lockObj)
             {
-                for (int i = _remotePings.Count - 1; i >= 0; i--)
+                int count = _remotePings.Count;
+                for (int i = 0; i < count; i++)
                 {
-                    _remotePings[i].RemainingDuration -= dt;
-                    if (_remotePings[i].RemainingDuration <= 0)
+                    var ping = _remotePings.Dequeue();
+                    ping.RemainingDuration -= dt;
+                    if (ping.RemainingDuration > 0f)
                     {
-                        _remotePings.RemoveAt(i);
+                        _remotePings.Enqueue(ping);
                     }
                 }
             }
 
-            // Capture and broadcast local cursor and camera focus
             long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            if (now - _lastCursorBroadcastTime >= 100) // 10 ticks per second limit
+            if (now - _lastCursorBroadcastTime >= 100)
             {
                 BroadcastLocalCursor(now);
             }
 
-            // Build and send JSON binding data to React UI
-            UpdateUiBindings();
+            _uiUpdateFrameCounter++;
+            if (_uiUpdateFrameCounter >= UiUpdateIntervalFrames)
+            {
+                _uiUpdateFrameCounter = 0;
+                UpdateUiBindings();
+            }
         }
 
         public static void RegisterActivity(string username, string actionText, float3 position)
         {
-            lock (LockObj)
+            var inst = _instance;
+            if (inst == null) return;
+            lock (inst._lockObj)
             {
-                _activityLog.Add(new CooperativeActivity
+                inst._activityLog.Enqueue(new CooperativeActivity
                 {
                     Username = username,
                     ActionText = actionText,
                     Position = position,
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 });
-                
-                // Keep only recent 80 entries
-                while (_activityLog.Count > 80)
+                while (inst._activityLog.Count > MaxActivityLog)
                 {
-                    _activityLog.RemoveAt(0);
+                    inst._activityLog.Dequeue();
                 }
             }
         }
@@ -160,10 +265,13 @@ namespace CS2M.Systems
         public static void UpdateRemoteCursor(PlayerCursorCommand command)
         {
             if (command == null) return;
-            
-            lock (LockObj)
+            if (command.TargetPlayerId == -1) return;
+
+            var inst = _instance;
+            if (inst == null) return;
+            lock (inst._lockObj)
             {
-                _remoteCursors[command.TargetPlayerId] = new RemoteCursorState
+                inst._remoteCursors[command.TargetPlayerId] = new RemoteCursorState
                 {
                     PlayerId = command.TargetPlayerId,
                     Username = command.TargetUsername,
@@ -174,6 +282,24 @@ namespace CS2M.Systems
                     LastUpdateTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     Latency = 0
                 };
+
+                if (inst._remoteCursors.Count > MaxRemoteCursors)
+                {
+                    int oldestId = -1;
+                    long oldestTime = long.MaxValue;
+                    foreach (var kvp in inst._remoteCursors)
+                    {
+                        if (kvp.Value.LastUpdateTime < oldestTime)
+                        {
+                            oldestTime = kvp.Value.LastUpdateTime;
+                            oldestId = kvp.Key;
+                        }
+                    }
+                    if (oldestId != -1)
+                    {
+                        inst._remoteCursors.Remove(oldestId);
+                    }
+                }
             }
         }
 
@@ -182,21 +308,24 @@ namespace CS2M.Systems
             if (command == null) return;
 
             float3 pos = new float3(command.PositionX, command.PositionY, command.PositionZ);
-            
-            lock (LockObj)
+
+            var inst = _instance;
+            if (inst != null)
             {
-                _remotePings.Add(new RemotePingState
+                lock (inst._lockObj)
                 {
-                    PlayerId = command.TargetPlayerId,
-                    Username = command.TargetUsername,
-                    Position = pos,
-                    PingType = command.PingType,
-                    StartTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    RemainingDuration = 6f
-                });
+                    inst._remotePings.Enqueue(new RemotePingState
+                    {
+                        PlayerId = command.TargetPlayerId,
+                        Username = command.TargetUsername,
+                        Position = pos,
+                        PingType = command.PingType,
+                        StartTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        RemainingDuration = 6f
+                    });
+                }
             }
 
-            // Log chat alert
             Chat.Instance?.PrintGameMessage($"{command.TargetUsername} pinged an area at ({pos.x:F0}, {pos.z:F0})");
         }
 
@@ -215,13 +344,10 @@ namespace CS2M.Systems
                 PositionX = terrainPoint.x,
                 PositionY = terrainPoint.y,
                 PositionZ = terrainPoint.z,
-                PingType = 0 // General ping
+                PingType = 0
             };
 
-            // Send packet to other players
             NetworkInterface.Instance.SendToAll(cmd);
-
-            // Execute locally too
             TriggerRemotePing(cmd);
         }
 
@@ -232,10 +358,9 @@ namespace CS2M.Systems
 
             float3 cameraFocus = GetLocalCameraFocusPoint();
 
-            // Resolve active tool and prefab
             string toolName = "None";
             string prefabName = "";
-            
+
             var toolSystem = World.DefaultGameObjectInjectionWorld?.GetExistingSystemManaged<Game.Tools.ToolSystem>();
             var activeTool = toolSystem?.activeTool;
             if (activeTool != null)
@@ -252,10 +377,9 @@ namespace CS2M.Systems
                 catch {}
             }
 
-            // Throttling: only send if cursor/focus moved or tool changed
-            if (math.distance(terrainPoint, _lastBroadcastedPosition) < 0.5f && 
-                math.distance(cameraFocus, _lastBroadcastedFocus) < 0.5f && 
-                toolName == _lastBroadcastedTool && 
+            if (math.distance(terrainPoint, _lastBroadcastedPosition) < 0.5f &&
+                math.distance(cameraFocus, _lastBroadcastedFocus) < 0.5f &&
+                toolName == _lastBroadcastedTool &&
                 prefabName == _lastBroadcastedPrefab)
             {
                 return;
@@ -300,7 +424,7 @@ namespace CS2M.Systems
                         {
                             return cp.m_Position;
                         }
-                        
+
                         object posObj = ReflectionHelper.GetAttr(lastRaycastObj, "m_Position");
                         if (posObj is float3 f3)
                         {
@@ -311,55 +435,17 @@ namespace CS2M.Systems
                 catch {}
             }
 
-            // Fallback plane raycast at average terrain height y=0 using dynamic reflection
-            var camera = UnityEngine.Camera.main;
+            var camera = Camera.main;
             if (camera != null)
             {
                 try
                 {
-                    Type v3Type = typeof(UnityEngine.Component).Assembly.GetType("UnityEngine.Vector3");
-                    object mousePosInstance = Input.mousePosition;
-                    var screenPtRayMethod = camera.GetType().GetMethod("ScreenPointToRay", new[] { v3Type });
-                    if (screenPtRayMethod != null)
-                    {
-                        object rayObj = screenPtRayMethod.Invoke(camera, new[] { mousePosInstance });
-                        if (rayObj != null)
-                        {
-                            object originObj = rayObj.GetType().GetField("m_Origin", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(rayObj);
-                            object directionObj = rayObj.GetType().GetField("m_Direction", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(rayObj);
-
-                            if (originObj == null) originObj = rayObj.GetType().GetProperty("origin")?.GetValue(rayObj, null);
-                            if (directionObj == null) directionObj = rayObj.GetType().GetProperty("direction")?.GetValue(rayObj, null);
-
-                            if (originObj != null && directionObj != null)
-                            {
-                                float originY = Convert.ToSingle(originObj.GetType().GetField("y")?.GetValue(originObj) ?? originObj.GetType().GetProperty("y")?.GetValue(originObj, null));
-                                float directionY = Convert.ToSingle(directionObj.GetType().GetField("y")?.GetValue(directionObj) ?? directionObj.GetType().GetProperty("y")?.GetValue(directionObj, null));
-
-                                if (directionY != 0)
-                                {
-                                    float t = -originY / directionY;
-                                    if (t >= 0)
-                                    {
-                                        float originX = Convert.ToSingle(originObj.GetType().GetField("x")?.GetValue(originObj) ?? originObj.GetType().GetProperty("x")?.GetValue(originObj, null));
-                                        float originZ = Convert.ToSingle(originObj.GetType().GetField("z")?.GetValue(originObj) ?? originObj.GetType().GetProperty("z")?.GetValue(originObj, null));
-                                        
-                                        float directionX = Convert.ToSingle(directionObj.GetType().GetField("x")?.GetValue(directionObj) ?? directionObj.GetType().GetProperty("x")?.GetValue(directionObj, null));
-                                        float directionZ = Convert.ToSingle(directionObj.GetType().GetField("z")?.GetValue(directionObj) ?? directionObj.GetType().GetProperty("z")?.GetValue(directionObj, null));
-
-                                        float ptX = originX + directionX * t;
-                                        float ptY = originY + directionY * t;
-                                        float ptZ = originZ + directionZ * t;
-                                        return new float3(ptX, ptY, ptZ);
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    Ray ray = camera.ScreenPointToRay(Input.mousePosition);
+                    return Vector3Bridge.RaycastToGround(ray);
                 }
                 catch (Exception ex)
                 {
-                    Log.Error($"Fallback raycast reflection failed: {ex}");
+                    Log.Error($"Fallback raycast failed: {ex}");
                 }
             }
 
@@ -373,24 +459,7 @@ namespace CS2M.Systems
                 var world = World.DefaultGameObjectInjectionWorld;
                 if (world == null) return float3.zero;
 
-                Type cameraSystemType = null;
-                var assemblies = AppDomain.CurrentDomain.GetAssemblies();
-                foreach (var assembly in assemblies)
-                {
-                    if (assembly.GetName().Name == "Game")
-                    {
-                        foreach (var type in assembly.GetTypes())
-                        {
-                            if (type.Name == "CameraControllerSystem")
-                            {
-                                cameraSystemType = type;
-                                break;
-                            }
-                        }
-                    }
-                    if (cameraSystemType != null) break;
-                }
-
+                Type cameraSystemType = _cameraControllerSystemType.Value;
                 if (cameraSystemType == null) return float3.zero;
 
                 object cameraSystem = world.GetExistingSystemManaged(cameraSystemType);
@@ -419,17 +488,21 @@ namespace CS2M.Systems
             float3 targetPosition = float3.zero;
             bool found = false;
 
-            lock (LockObj)
+            var inst = _instance;
+            if (inst != null)
             {
-                if (playerId == NetworkInterface.Instance.LocalPlayer.PlayerId)
+                lock (inst._lockObj)
                 {
-                    return;
-                }
+                    if (playerId == NetworkInterface.Instance.LocalPlayer.PlayerId)
+                    {
+                        return;
+                    }
 
-                if (_remoteCursors.TryGetValue(playerId, out var cursor))
-                {
-                    targetPosition = cursor.Position;
-                    found = true;
+                    if (inst._remoteCursors.TryGetValue(playerId, out var cursor))
+                    {
+                        targetPosition = cursor.Position;
+                        found = true;
+                    }
                 }
             }
 
@@ -450,24 +523,7 @@ namespace CS2M.Systems
                 var world = World.DefaultGameObjectInjectionWorld;
                 if (world == null) return;
 
-                Type cameraSystemType = null;
-                var assemblies = AppDomain.CurrentDomain.GetAssemblies();
-                foreach (var assembly in assemblies)
-                {
-                    if (assembly.GetName().Name == "Game")
-                    {
-                        foreach (var type in assembly.GetTypes())
-                        {
-                            if (type.Name == "CameraControllerSystem")
-                            {
-                                cameraSystemType = type;
-                                break;
-                            }
-                        }
-                    }
-                    if (cameraSystemType != null) break;
-                }
-
+                Type cameraSystemType = _cameraControllerSystemType.Value;
                 if (cameraSystemType == null)
                 {
                     Log.Warn("TeleportCamera: CameraControllerSystem not found in Game assembly.");
@@ -481,7 +537,6 @@ namespace CS2M.Systems
                     return;
                 }
 
-                // Snap pivot/target
                 System.Reflection.PropertyInfo pivotProp = cameraSystemType.GetProperty("pivot", ReflectionHelper.AllAccessFlags);
                 System.Reflection.FieldInfo pivotField = cameraSystemType.GetField("m_Pivot", ReflectionHelper.AllAccessFlags);
 
@@ -494,7 +549,6 @@ namespace CS2M.Systems
                     pivotField.SetValue(cameraSystem, position);
                 }
 
-                // Snap camera position with tilt view look-down offset
                 System.Reflection.PropertyInfo posProp = cameraSystemType.GetProperty("position", ReflectionHelper.AllAccessFlags);
                 System.Reflection.FieldInfo posField = cameraSystemType.GetField("m_Position", ReflectionHelper.AllAccessFlags);
 
@@ -522,11 +576,14 @@ namespace CS2M.Systems
             sb.Append("{");
 
             long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var cam = Camera.main;
+            float screenW = Screen.width;
+            float screenH = Screen.height;
 
             // 1. Cursors List
             sb.Append("\"cursors\":[");
             int cCount = 0;
-            lock (LockObj)
+            lock (_lockObj)
             {
                 foreach (var cursor in _remoteCursors.Values)
                 {
@@ -540,65 +597,13 @@ namespace CS2M.Systems
                     sb.Append($"\"y\":{cursor.Position.y.ToString(CultureInfo.InvariantCulture)},");
                     sb.Append($"\"z\":{cursor.Position.z.ToString(CultureInfo.InvariantCulture)},");
 
-                    float screenX = 0f;
-                    float screenY = 0f;
-                    bool visible = false;
-                    
-                    float focusScreenX = 0f;
-                    float focusScreenY = 0f;
-                    bool focusVisible = false;
-
-                    var cam = UnityEngine.Camera.main;
-                    if (cam != null)
-                    {
-                        try
-                        {
-                            Type v3Type = typeof(UnityEngine.Component).Assembly.GetType("UnityEngine.Vector3");
-                            var w2sMethod = cam.GetType().GetMethod("WorldToScreenPoint", new[] { v3Type });
-                            if (w2sMethod != null)
-                            {
-                                // Cursor Projection
-                                object v3Cursor = Activator.CreateInstance(v3Type, cursor.Position.x, cursor.Position.y, cursor.Position.z);
-                                object screenPosObj = w2sMethod.Invoke(cam, new[] { v3Cursor });
-                                if (screenPosObj != null)
-                                {
-                                    float screenPosX = Convert.ToSingle(screenPosObj.GetType().GetField("x")?.GetValue(screenPosObj) ?? screenPosObj.GetType().GetProperty("x")?.GetValue(screenPosObj, null));
-                                    float screenPosY = Convert.ToSingle(screenPosObj.GetType().GetField("y")?.GetValue(screenPosObj) ?? screenPosObj.GetType().GetProperty("y")?.GetValue(screenPosObj, null));
-                                    float screenPosZ = Convert.ToSingle(screenPosObj.GetType().GetField("z")?.GetValue(screenPosObj) ?? screenPosObj.GetType().GetProperty("z")?.GetValue(screenPosObj, null));
-
-                                    if (screenPosZ > 0)
-                                    {
-                                        screenX = (screenPosX / Screen.width) * 100f;
-                                        screenY = (1f - (screenPosY / Screen.height)) * 100f;
-                                        visible = true;
-                                    }
-                                }
-
-                                // Camera Focus Projection
-                                object v3Focus = Activator.CreateInstance(v3Type, cursor.CameraFocus.x, cursor.CameraFocus.y, cursor.CameraFocus.z);
-                                object screenFocusObj = w2sMethod.Invoke(cam, new[] { v3Focus });
-                                if (screenFocusObj != null)
-                                {
-                                    float screenPosX = Convert.ToSingle(screenFocusObj.GetType().GetField("x")?.GetValue(screenFocusObj) ?? screenFocusObj.GetType().GetProperty("x")?.GetValue(screenFocusObj, null));
-                                    float screenPosY = Convert.ToSingle(screenFocusObj.GetType().GetField("y")?.GetValue(screenFocusObj) ?? screenFocusObj.GetType().GetProperty("y")?.GetValue(screenFocusObj, null));
-                                    float screenPosZ = Convert.ToSingle(screenFocusObj.GetType().GetField("z")?.GetValue(screenFocusObj) ?? screenFocusObj.GetType().GetProperty("z")?.GetValue(screenFocusObj, null));
-
-                                    if (screenPosZ > 0)
-                                    {
-                                        focusScreenX = (screenPosX / Screen.width) * 100f;
-                                        focusScreenY = (1f - (screenPosY / Screen.height)) * 100f;
-                                        focusVisible = true;
-                                    }
-                                }
-                            }
-                        }
-                        catch {}
-                    }
+                    bool visible = Vector3Bridge.TryWorldToScreenPoint(cam, cursor.Position, screenW, screenH, out float screenX, out float screenY);
+                    bool focusVisible = Vector3Bridge.TryWorldToScreenPoint(cam, cursor.CameraFocus, screenW, screenH, out float focusScreenX, out float focusScreenY);
 
                     sb.Append($"\"screenX\":{screenX.ToString(CultureInfo.InvariantCulture)},");
                     sb.Append($"\"screenY\":{screenY.ToString(CultureInfo.InvariantCulture)},");
                     sb.Append($"\"visible\":{(visible ? "true" : "false")},");
-                    
+
                     sb.Append($"\"focusX\":{cursor.CameraFocus.x.ToString(CultureInfo.InvariantCulture)},");
                     sb.Append($"\"focusY\":{cursor.CameraFocus.y.ToString(CultureInfo.InvariantCulture)},");
                     sb.Append($"\"focusZ\":{cursor.CameraFocus.z.ToString(CultureInfo.InvariantCulture)},");
@@ -617,7 +622,7 @@ namespace CS2M.Systems
             // 2. Pings List
             sb.Append("\"pings\":[");
             int pCount = 0;
-            lock (LockObj)
+            lock (_lockObj)
             {
                 foreach (var ping in _remotePings)
                 {
@@ -629,40 +634,12 @@ namespace CS2M.Systems
                     sb.Append($"\"y\":{ping.Position.y.ToString(CultureInfo.InvariantCulture)},");
                     sb.Append($"\"z\":{ping.Position.z.ToString(CultureInfo.InvariantCulture)},");
 
-                    float screenX = 0f;
-                    float screenY = 0f;
-                    bool visible = false;
+                    bool visible = Vector3Bridge.TryWorldToScreenPoint(cam, ping.Position, screenW, screenH, out float screenX, out float screenY);
                     float distance = 0f;
-                    var cam = UnityEngine.Camera.main;
                     if (cam != null)
                     {
-                        try
-                        {
-                            float3 camPos = new float3(cam.transform.position.x, cam.transform.position.y, cam.transform.position.z);
-                            distance = math.distance(camPos, ping.Position);
-
-                            Type v3Type = typeof(UnityEngine.Component).Assembly.GetType("UnityEngine.Vector3");
-                            object v3Instance = Activator.CreateInstance(v3Type, ping.Position.x, ping.Position.y, ping.Position.z);
-                            var w2sMethod = cam.GetType().GetMethod("WorldToScreenPoint", new[] { v3Type });
-                            if (w2sMethod != null)
-                            {
-                                object screenPosObj = w2sMethod.Invoke(cam, new[] { v3Instance });
-                                if (screenPosObj != null)
-                                {
-                                    float screenPosX = Convert.ToSingle(screenPosObj.GetType().GetField("x")?.GetValue(screenPosObj) ?? screenPosObj.GetType().GetProperty("x")?.GetValue(screenPosObj, null));
-                                    float screenPosY = Convert.ToSingle(screenPosObj.GetType().GetField("y")?.GetValue(screenPosObj) ?? screenPosObj.GetType().GetProperty("y")?.GetValue(screenPosObj, null));
-                                    float screenPosZ = Convert.ToSingle(screenPosObj.GetType().GetField("z")?.GetValue(screenPosObj) ?? screenPosObj.GetType().GetProperty("z")?.GetValue(screenPosObj, null));
-
-                                    if (screenPosZ > 0)
-                                    {
-                                        screenX = (screenPosX / Screen.width) * 100f;
-                                        screenY = (1f - (screenPosY / Screen.height)) * 100f;
-                                        visible = true;
-                                    }
-                                }
-                            }
-                        }
-                        catch {}
+                        float3 camPos = Vector3Bridge.GetTransformPosition(cam.transform);
+                        distance = math.distance(camPos, ping.Position);
                     }
 
                     sb.Append($"\"screenX\":{screenX.ToString(CultureInfo.InvariantCulture)},");
@@ -714,7 +691,7 @@ namespace CS2M.Systems
                 }
                 else
                 {
-                    lock (LockObj)
+                    lock (_lockObj)
                     {
                         if (_remoteCursors.TryGetValue(player.PlayerId, out var cursor))
                         {
@@ -731,14 +708,15 @@ namespace CS2M.Systems
             }
             sb.Append("],");
 
-            // 4. Activities Timeline Log Ledger (Newest entries first)
+            // 4. Activities Timeline Log Ledger
             sb.Append("\"activities\":[");
             int aCount = 0;
-            lock (LockObj)
+            lock (_lockObj)
             {
-                for (int i = _activityLog.Count - 1; i >= 0; i--)
+                CooperativeActivity[] acts = _activityLog.ToArray();
+                for (int i = acts.Length - 1; i >= 0; i--)
                 {
-                    var act = _activityLog[i];
+                    var act = acts[i];
                     if (aCount > 0) sb.Append(",");
                     sb.Append("{");
                     sb.Append($"\"username\":\"{Escaped(act.Username)}\",");

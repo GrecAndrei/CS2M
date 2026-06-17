@@ -33,6 +33,9 @@ namespace CS2M.Networking
         private ConnectionConfig _connectionConfig;
         private IPEndPoint _connectEndpoint;
         private Timer _timeout;
+        private Timer _natTimeoutTimer;
+        private Timer _connectTimeoutTimer;
+        private readonly ConcurrentDictionary<int, Timer> _peerRegistrationTimers = new();
         private bool _pollNatEvent = false;
         private bool _isStarted = false;
         private bool _isShuttingDown = false;
@@ -151,15 +154,17 @@ namespace CS2M.Networking
             ConnectionState = ConnectionState.NatHolePunching;
 
             EventBasedNatPunchListener natPunchListener = new EventBasedNatPunchListener();
-            
-            using var timeoutTimer = new Timer
+
+            StopAndDisposeTimer(ref _natTimeoutTimer);
+            _natTimeoutTimer = new Timer
             {
                 Interval = 10000, // Increased timeout for NAT
                 AutoReset = false
             };
-            
-            timeoutTimer.Elapsed += (sender, args) =>
+
+            _natTimeoutTimer.Elapsed += (sender, args) =>
             {
+                if (_isShuttingDown) return;
                 Log.Debug("NAT hole punch timed out, attempting direct connection");
                 lock (_lock)
                 {
@@ -178,28 +183,29 @@ namespace CS2M.Networking
                     _connectEndpoint = point;
                     ConnectionState = ConnectionState.Connected;
                 }
-                
+
                 bool? eventResult = NatHolePunchSuccessfulEvent?.Invoke();
                 if (eventResult != null && eventResult.Value)
                 {
-                    timeoutTimer.Enabled = false;
+                    StopAndDisposeTimer(ref _natTimeoutTimer);
                 }
             };
 
             try
             {
                 _netManager.NatPunchModule.Init(natPunchListener);
-                
+
                 var apiEndpoint = IPUtil.CreateIP4EndPoint(Mod.Instance.Settings.ApiServer, Mod.Instance.Settings.GetApiServerPort());
                 _netManager.NatPunchModule.SendNatIntroduceRequest(
                     apiEndpoint,
                     _connectionConfig.IsTokenBased() ? $"token:{_connectionConfig.Token}" : $"ip:{(directEndpoint?.Address != null ? directEndpoint.Address.ToString() : "unknown")}");
-                
-                timeoutTimer.Start();
+
+                _natTimeoutTimer.Start();
                 Log.Debug("NAT hole punch initiated");
             }
             catch (Exception e)
             {
+                StopAndDisposeTimer(ref _natTimeoutTimer);
                 Log.Error($"NAT hole punch failed: {e.Message}");
                 ConnectionState = ConnectionState.Failed;
                 return false;
@@ -231,25 +237,28 @@ namespace CS2M.Networking
 
             try
             {
-                using var connectTimeout = new Timer
+                StopAndDisposeTimer(ref _connectTimeoutTimer);
+                _connectTimeoutTimer = new Timer
                 {
                     Interval = 10000,
                     AutoReset = false
                 };
 
-                connectTimeout.Elapsed += (sender, args) =>
+                _connectTimeoutTimer.Elapsed += (sender, args) =>
                 {
+                    if (_isShuttingDown) return;
                     Log.Debug($"Connection to client ({_connectEndpoint.Address}:{_connectEndpoint.Port}) timed out");
                     ConnectionState = ConnectionState.Failed;
                     ClientConnectFailedEvent?.Invoke();
                 };
 
                 _netManager.Connect(_connectEndpoint, ConnectionKey);
-                connectTimeout.Start();
+                _connectTimeoutTimer.Start();
                 return true;
             }
             catch (Exception ex)
             {
+                StopAndDisposeTimer(ref _connectTimeoutTimer);
                 Log.Error($"Failed to establish connection: {ex.Message}", ex);
                 ConnectionState = ConnectionState.Failed;
                 return false;
@@ -422,6 +431,16 @@ namespace CS2M.Networking
                 _timeout?.Dispose();
                 _timeout = null;
 
+                StopAndDisposeTimer(ref _natTimeoutTimer);
+                StopAndDisposeTimer(ref _connectTimeoutTimer);
+
+                foreach (var pair in _peerRegistrationTimers)
+                {
+                    pair.Value.Stop();
+                    pair.Value.Dispose();
+                }
+                _peerRegistrationTimers.Clear();
+
                 // Stop NAT punching
                 _pollNatEvent = false;
 
@@ -441,6 +460,21 @@ namespace CS2M.Networking
             {
                 Log.Error($"Error during stop: {ex.Message}", ex);
             }
+        }
+
+        private void StopAndDisposeTimer(ref Timer timer)
+        {
+            if (timer == null) return;
+            try
+            {
+                timer.Stop();
+                timer.Dispose();
+            }
+            catch
+            {
+                // Ignore disposal errors
+            }
+            timer = null;
         }
 
         private void ListenerOnNetworkReceiveEvent(NetPeer peer, NetPacketReader reader, byte channel, DeliveryMethod deliveryMethod)
@@ -515,7 +549,7 @@ namespace CS2M.Networking
         private void ListenerOnPeerConnectedEvent(NetPeer peer)
         {
             Log.Debug($"Peer connected: {peer.Id}");
-            
+
             lock (_lock)
             {
                 _activePeers.TryAdd(peer.Id, peer);
@@ -523,39 +557,54 @@ namespace CS2M.Networking
 
             if (NetworkInterface.Instance.LocalPlayer.PlayerType == PlayerType.CLIENT)
             {
-                _timeout?.Stop();
+                StopAndDisposeTimer(ref _connectTimeoutTimer);
                 ConnectionState = ConnectionState.Connected;
                 ClientConnectSuccessfulEvent?.Invoke();
             }
             else if (NetworkInterface.Instance.LocalPlayer.PlayerType == PlayerType.SERVER)
             {
-                using var timeout = new Timer
+                var registrationTimer = new Timer
                 {
                     Interval = 10000,
                     AutoReset = false
                 };
 
-                timeout.Elapsed += (sender, args) =>
+                _peerRegistrationTimers[peer.Id] = registrationTimer;
+
+                registrationTimer.Elapsed += (sender, args) =>
                 {
+                    if (_isShuttingDown) return;
                     if (NetworkInterface.Instance.GetPlayerByPeer(peer) == null)
                     {
                         Log.Warn($"Peer {peer.Id} did not register within 10 seconds, disconnecting");
                         peer.Disconnect();
                     }
+                    RemovePeerRegistrationTimer(peer.Id);
                 };
 
-                timeout.Start();
+                registrationTimer.Start();
+            }
+        }
+
+        private void RemovePeerRegistrationTimer(int peerId)
+        {
+            if (_peerRegistrationTimers.TryRemove(peerId, out Timer timer))
+            {
+                timer.Stop();
+                timer.Dispose();
             }
         }
 
         private void ListenerOnPeerDisconnectedEvent(NetPeer peer, DisconnectInfo disconnectInfo)
         {
             Log.Debug($"Peer disconnected: {peer.Id}, Info: {disconnectInfo.Reason}");
-            
+
             lock (_lock)
             {
                 _activePeers.TryRemove(peer.Id, out _);
             }
+
+            RemovePeerRegistrationTimer(peer.Id);
 
             if (NetworkInterface.Instance.LocalPlayer.PlayerType == PlayerType.CLIENT)
             {

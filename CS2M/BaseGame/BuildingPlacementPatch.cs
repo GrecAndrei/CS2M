@@ -21,7 +21,7 @@ namespace CS2M.BaseGame
         {
             __state = null;
 
-            if (!ShouldHandlePlacement(__instance))
+            if (ReplayScope.IsReplayActive || !ShouldHandlePlacement(__instance))
             {
                 return true;
             }
@@ -48,7 +48,7 @@ namespace CS2M.BaseGame
 
         public static void Postfix(BuildingCreateCommand __state)
         {
-            if (Command.CurrentRole != MultiplayerRole.Server || __state == null)
+            if (ReplayScope.IsReplayActive || Command.CurrentRole != MultiplayerRole.Server || __state == null)
             {
                 return;
             }

@@ -10,7 +10,6 @@ namespace CS2M.Commands.Handler.Internal
     {
         public ChatMessageHandler()
         {
-            TransactionCmd = false;
         }
 
         protected override void Handle(ChatMessageCommand command)

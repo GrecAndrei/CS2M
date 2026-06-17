@@ -1,7 +1,7 @@
 using Colossal.Logging;
 using System;
 
-namespace CS2M.BaseGame.Systems
+namespace CS2M.BaseGame
 {
     /// <summary>
     ///     Logging bridge for the BaseGame assembly

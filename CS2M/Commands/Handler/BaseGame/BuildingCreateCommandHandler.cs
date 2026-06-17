@@ -19,8 +19,6 @@ namespace CS2M.Commands.Handler.BaseGame
 
         public BuildingCreateCommandHandler()
         {
-            TransactionCmd = false;
-            RelayOnServer = false;
         }
 
         protected override void Handle(BuildingCreateCommand command)
@@ -61,8 +59,9 @@ namespace CS2M.Commands.Handler.BaseGame
                 return;
             }
 
-            command.RequestOnly = false;
-            Command.SendToClients?.Invoke(command);
+            var replication = (BuildingCreateCommand)command.Clone();
+            replication.RequestOnly = false;
+            Command.SendToClients?.Invoke(replication);
 
             // Log activity to the cooperative ledger
             CS2M.Systems.CooperativeSyncSystem.RegisterActivity(
@@ -109,7 +108,8 @@ namespace CS2M.Commands.Handler.BaseGame
         {
             if (nonce == 0)
             {
-                return true;
+                Log.Warn($"BuildingCreateCommandHandler: rejected command with placement nonce 0.");
+                return false;
             }
 
             lock (sync)

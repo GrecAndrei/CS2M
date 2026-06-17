@@ -32,5 +32,7 @@ namespace CS2M.Commands.Data.Internal
         ///     If this is the first packet of a transfer.
         /// </summary>
         public bool NewTransfer { get; set; }
+
+        public override bool Validate() => true;
     }
 }

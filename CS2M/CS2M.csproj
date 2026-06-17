@@ -130,6 +130,8 @@
         <PackAssemblies Include="$(OutputPath)\System.Threading.Tasks.Extensions.dll"/>
 
         <PackAssemblies Include="$(OutputPath)\0Harmony.dll"/>
+        <PackAssemblies Include="$(OutputPath)\CS2M.API.dll"/>
+        <PackAssemblies Include="$(OutputPath)\CS2M.BaseGame.dll"/>
     </ItemGroup>
 
     <Target Name="CopyEmits" AfterTargets="Build">
@@ -160,6 +162,7 @@
 
     <Target Name="BuildUI" AfterTargets="ILRepacker">
         <Exec Command="set &quot;CSII_USERDATAPATH=../dist&quot; &amp;&amp; npm run build" WorkingDirectory="$(ProjectDir)/../CS2M.UI"/>
+        <Copy SourceFiles="$(ProjectDir)/../CS2M.UI/mod.json" DestinationFolder="$(ProjectDir)/../dist/Mods/CS2M" SkipUnchangedFiles="true"/>
     </Target>
 
 </Project>

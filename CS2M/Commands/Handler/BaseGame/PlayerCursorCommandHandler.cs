@@ -8,8 +8,6 @@ namespace CS2M.Commands.Handler.BaseGame
     {
         public PlayerCursorCommandHandler()
         {
-            TransactionCmd = false;
-            RelayOnServer = false;
         }
 
         protected override void Handle(PlayerCursorCommand command)

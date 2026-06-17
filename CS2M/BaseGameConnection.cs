@@ -1,5 +1,5 @@
 ﻿using CS2M.API;
-using CS2M.BaseGame;
+using CS2M.BaseGame.Commands;
 
 namespace CS2M
 {
@@ -10,7 +10,7 @@ namespace CS2M
             Name = "Cities: Skylines II";
             Enabled = true;
             ModClass = null;
-            CommandAssemblies.Add(typeof(BaseGameMain).Assembly);
+            CommandAssemblies.Add(typeof(MoneyCommand).Assembly);
         }
 
         public override void RegisterHandlers()

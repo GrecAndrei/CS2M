@@ -1,6 +1,7 @@
 using CS2M.API.Commands;
 using CS2M.BaseGame.Commands;
 using LiteNetLib;
+using System.Threading;
 using Unity.Entities;
 
 namespace CS2M.Commands.Handler.BaseGame
@@ -79,16 +80,16 @@ namespace CS2M.Commands.Handler.BaseGame
             return true;
         }
 
+        private static long _currentEpoch = 0;
+
         private long GetAuthorityEpoch()
         {
-            // This should be stored somewhere persistent, for now returning 0
-            // In production, this would use a local cache or config file
-            return 0;
+            return Interlocked.Read(ref _currentEpoch);
         }
 
         private void SetAuthorityEpoch(long epoch)
         {
-            // Similar to GetAuthorityEpoch, store this value persistently
+            Interlocked.Exchange(ref _currentEpoch, epoch);
             Log.Debug($"Updated authority epoch to {epoch}");
         }
     }

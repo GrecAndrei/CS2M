@@ -20,14 +20,33 @@ namespace CS2M.Commands.Handler.Internal
         private static readonly ConcurrentDictionary<int, JoinRequestThrottle> _throttling = new();
         private const int MAX_REQUESTS_PER_SECOND = 3;
         private const int REQUEST_COOLDOWN_MS = 1000;
-        
+
         // Track last seen peer IPs for additional protection
         private static readonly ConcurrentDictionary<int, long> _lastRequestTime = new();
-        
+
+        static JoinRequestHandler()
+        {
+        }
+
+        private static bool _subscribed;
+
+        private static void OnPeerDisconnected(Player player)
+        {
+            if (player is RemotePlayer remotePlayer && remotePlayer.NetPeer != null)
+            {
+                int peerId = remotePlayer.NetPeer.Id;
+                _throttling.TryRemove(peerId, out _);
+                _lastRequestTime.TryRemove(peerId, out _);
+            }
+        }
+
         public JoinRequestHandler()
         {
-            TransactionCmd = false;
-            RelayOnServer = false;
+            if (!_subscribed)
+            {
+                _subscribed = true;
+                NetworkInterface.Instance.PlayerDisconnectedEvent += OnPeerDisconnected;
+            }
         }
 
         protected override void Handle(JoinRequestCommand command)
@@ -122,12 +141,8 @@ namespace CS2M.Commands.Handler.Internal
         private long GetAndCheckAbsoluteTime(int peerId)
         {
             long now = System.Diagnostics.Stopwatch.GetTimestamp();
-            _lastRequestTime.AddOrUpdate(peerId, now, (id, old) =>
-            {
-                long result = now;
-                return result;
-            });
-            return _lastRequestTime.TryGetValue(peerId, out var lastTime) ? lastTime : 0;
+            long lastTime = _lastRequestTime.AddOrUpdate(peerId, now, (id, old) => old);
+            return lastTime == now ? 0 : lastTime;
         }
 
         private void ValidateCommand(JoinRequestCommand command)

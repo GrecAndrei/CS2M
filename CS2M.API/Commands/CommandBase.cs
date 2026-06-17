@@ -6,9 +6,5 @@
     /// </summary>
     public abstract class CommandBase : BaseCommand
     {
-        /// <summary>
-        ///     Override to specify custom command type name (defaults to class name)
-        /// </summary>
-        public override string CommandType => GetCommandType();
     }
 }

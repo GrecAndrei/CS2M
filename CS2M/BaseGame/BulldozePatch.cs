@@ -20,7 +20,7 @@ namespace CS2M.BaseGame
         {
             __state = null;
 
-            if (!ShouldHandleBulldoze(__instance))
+            if (ReplayScope.IsReplayActive || !ShouldHandleBulldoze(__instance))
             {
                 return true;
             }
@@ -59,7 +59,7 @@ namespace CS2M.BaseGame
 
         public static void Postfix(BulldozeCommand __state)
         {
-            if (Command.CurrentRole != MultiplayerRole.Server || __state == null)
+            if (ReplayScope.IsReplayActive || Command.CurrentRole != MultiplayerRole.Server || __state == null)
             {
                 return;
             }

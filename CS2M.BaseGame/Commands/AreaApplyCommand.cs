@@ -40,5 +40,30 @@ namespace CS2M.BaseGame.Commands
         public int ApplyNonce { get; set; }
         public bool RequestOnly { get; set; }
         public AreaControlPointSnapshot[] ControlPoints { get; set; }
+
+        public override bool Validate()
+        {
+            if (string.IsNullOrWhiteSpace(PrefabName) || PrefabName.Length > 128)
+            {
+                return false;
+            }
+
+            if (Mode < 0 || Mode > 4)
+            {
+                return false;
+            }
+
+            if (ControlPoints == null || ControlPoints.Length == 0 || ControlPoints.Length > 1024)
+            {
+                return false;
+            }
+
+            if (ApplyNonce == 0)
+            {
+                return false;
+            }
+
+            return true;
+        }
     }
 }

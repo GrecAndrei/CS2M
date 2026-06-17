@@ -9,6 +9,7 @@ using Unity.Entities;
 using System;
 using System.Linq;
 using System.Collections.Generic;
+using System.Net;
 
 namespace CS2M.UI
 {
@@ -182,6 +183,11 @@ namespace CS2M.UI
                             PrintGameMessage("Usage: /money <amount>");
                             break;
                         }
+                        if (moneyVal < 0L || moneyVal > 1_000_000_000_000L)
+                        {
+                            PrintGameMessage("Error: /money amount must be in [0, 1000000000000].");
+                            break;
+                        }
                         var moneySys = World.DefaultGameObjectInjectionWorld?.GetExistingSystemManaged<CS2M.BaseGame.Systems.MoneySyncSystem>();
                         if (moneySys != null)
                         {
@@ -235,7 +241,9 @@ namespace CS2M.UI
         private void PrintMessage(string sender, string msg)
         {
             Log.Info($"Chat message: [{sender}] - {msg}");
-            ChatMessages.value.Add(new Message(DateTime.Now.ToShortTimeString(), sender, msg));
+            string safeSender = WebUtility.HtmlEncode(sender ?? string.Empty);
+            string safeMsg = WebUtility.HtmlEncode(msg ?? string.Empty);
+            ChatMessages.value.Add(new Message(DateTime.Now.ToShortTimeString(), safeSender, safeMsg));
             ChatMessages.TriggerUpdate();
         }
 

@@ -19,8 +19,6 @@ namespace CS2M.Commands.Handler.BaseGame
 
         public BulldozeCommandHandler()
         {
-            TransactionCmd = false;
-            RelayOnServer = false;
         }
 
         protected override void Handle(BulldozeCommand command)
@@ -62,8 +60,9 @@ namespace CS2M.Commands.Handler.BaseGame
                 return;
             }
 
-            command.RequestOnly = false;
-            Command.SendToClients?.Invoke(command);
+            var replication = (BulldozeCommand)command.Clone();
+            replication.RequestOnly = false;
+            Command.SendToClients?.Invoke(replication);
 
             // Log activity to the cooperative ledger
             CS2M.Systems.CooperativeSyncSystem.RegisterActivity(
@@ -107,7 +106,8 @@ namespace CS2M.Commands.Handler.BaseGame
         {
             if (nonce == 0)
             {
-                return true;
+                Log.Warn($"BulldozeCommandHandler: rejected command with bulldoze nonce 0.");
+                return false;
             }
 
             lock (sync)

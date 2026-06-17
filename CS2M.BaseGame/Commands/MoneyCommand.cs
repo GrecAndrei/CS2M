@@ -3,7 +3,6 @@ using MessagePack;
 using System;
 using Game.Simulation;
 using Unity.Entities;
-using CS2M.BaseGame.Systems;
 using UnityEngine;
 
 namespace CS2M.BaseGame.Commands
@@ -30,7 +29,7 @@ namespace CS2M.BaseGame.Commands
         ///     Timestamp when this value was recorded
         /// </summary>
         [Key(2)]
-        public long Timestamp { get; set; } = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        public new long Timestamp { get; set; } = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         
         /// <summary>
         ///     Validate that money value is reasonable
@@ -40,17 +39,12 @@ namespace CS2M.BaseGame.Commands
             // Cannot be negative
             if (Money < 0)
                 return false;
-            
+
             // Maximum reasonable money value (1 trillion cap)
             const long MAX_MONEY = 1_000_000_000_000L;
             if (Money > MAX_MONEY)
                 return false;
-            
-            // Timestamp must be recent (within last 60 seconds)
-            long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            if (Math.Abs(now - Timestamp) > 60000)
-                return false;
-            
+
             return true;
         }
     }

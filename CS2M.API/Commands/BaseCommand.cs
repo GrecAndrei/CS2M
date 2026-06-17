@@ -10,7 +10,7 @@ namespace CS2M.API.Commands
         /// <summary>
         ///     Command type identifier for handler lookup
         /// </summary>
-        public virtual string CommandType { get; set; }
+        public virtual string CommandType => GetType().Name;
 
         /// <summary>
         ///     Unique command ID (if applicable)
@@ -28,11 +28,6 @@ namespace CS2M.API.Commands
         public int SenderId { get; set; } = -1;
 
         /// <summary>
-        ///     Security token to prevent replay attacks
-        /// </summary>
-        public ulong SecurityToken { get; set; }
-
-        /// <summary>
         ///     Direction of the command routing
         /// </summary>
         public virtual CommandDirection Direction => CommandDirection.None;
@@ -40,12 +35,17 @@ namespace CS2M.API.Commands
         /// <summary>
         ///     Validates that this command can be processed
         /// </summary>
-        public virtual bool Validate() => true;
+        public virtual bool Validate() => false;
+
+        /// <summary>
+        ///     Creates a shallow copy of this command
+        /// </summary>
+        public BaseCommand Clone() => (BaseCommand)MemberwiseClone();
 
         /// <summary>
         ///     Gets the canonical type name for serialization
         /// </summary>
-        public string GetCommandType() => CommandType ?? GetType().Name;
+        public string GetCommandType() => GetType().Name;
     }
 
     /// <summary>

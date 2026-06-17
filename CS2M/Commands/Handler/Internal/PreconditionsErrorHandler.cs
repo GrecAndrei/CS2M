@@ -8,7 +8,6 @@ namespace CS2M.Commands.Handler.Internal
     {
         public PreconditionsErrorHandler()
         {
-            TransactionCmd = false;
         }
 
         protected override void Handle(PreconditionsErrorCommand command)

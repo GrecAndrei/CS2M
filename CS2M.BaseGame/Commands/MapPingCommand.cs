@@ -29,6 +29,35 @@ namespace CS2M.BaseGame.Commands
 
         public override bool Validate()
         {
+            if (TargetPlayerId < 0)
+            {
+                return false;
+            }
+
+            if (TargetUsername != null && TargetUsername.Length > 128)
+            {
+                return false;
+            }
+
+            const float MAX_COORD = 50000f;
+            if (PositionX < -MAX_COORD || PositionX > MAX_COORD)
+            {
+                return false;
+            }
+            if (PositionY < -MAX_COORD || PositionY > MAX_COORD)
+            {
+                return false;
+            }
+            if (PositionZ < -MAX_COORD || PositionZ > MAX_COORD)
+            {
+                return false;
+            }
+
+            if (PingType < 0 || PingType > 2)
+            {
+                return false;
+            }
+
             return true;
         }
     }

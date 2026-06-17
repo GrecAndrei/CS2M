@@ -6,7 +6,6 @@ using CS2M.Mods;
 using CS2M.Networking;
 using CS2M.Util;
 using LiteNetLib;
-using System.Collections.Concurrent;
 using System.Threading;
 
 namespace CS2M.Commands.Handler.Internal
@@ -16,12 +15,8 @@ namespace CS2M.Commands.Handler.Internal
     /// </summary>
     public class PreconditionsCheckHandler : CommandHandler<PreconditionsCheckCommand>
     {
-        // Thread-safe counter for concurrent connections
-        private static readonly ConcurrentBag<string> _usernameLog = new();
-        
         public PreconditionsCheckHandler()
         {
-            TransactionCmd = false;
         }
 
         protected override void Handle(PreconditionsCheckCommand command)
@@ -54,15 +49,12 @@ namespace CS2M.Commands.Handler.Internal
                 PreconditionsUtil.Result result = PreconditionsUtil.CheckPreconditions(command);
 
                 // Check duplicate usernames on connection list
-                lock (_usernameLog)
+                foreach (var connectedPlayer in NetworkInterface.Instance.PlayerListConnected)
                 {
-                    foreach (var connectedPlayer in NetworkInterface.Instance.PlayerListConnected)
+                    if (connectedPlayer.Username.Equals(command.Username, System.StringComparison.OrdinalIgnoreCase))
                     {
-                        if (connectedPlayer.Username.Equals(command.Username, System.StringComparison.OrdinalIgnoreCase))
-                        {
-                            Log.Debug($"[Preconditions Check] Username '{command.Username}' is already connected.");
-                            result.Errors |= PreconditionsUtil.Errors.USERNAME_NOT_AVAILABLE;
-                        }
+                        Log.Debug($"[Preconditions Check] Username '{command.Username}' is already connected.");
+                        result.Errors |= PreconditionsUtil.Errors.USERNAME_NOT_AVAILABLE;
                     }
                 }
 
@@ -80,15 +72,13 @@ namespace CS2M.Commands.Handler.Internal
                 if (result.Errors == PreconditionsUtil.Errors.NONE)
                 {
                     Log.Info($"Preconditions check passed for user '{command.Username}' from peer {peer.Id}");
-                    
+
                     // Send success response
                     NetworkInterface.Instance.LocalPlayer.SendToClient(peer, new PreconditionsSuccessCommand());
 
                     // Register player as connected
                     var remotePlayer = new RemotePlayer(peer, command.Username, PlayerType.CLIENT);
                     NetworkInterface.Instance.PlayerConnected(remotePlayer);
-                    
-                    _usernameLog.Add(command.Username.ToLower());
                 }
                 else
                 {

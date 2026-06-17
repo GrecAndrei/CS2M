@@ -33,7 +33,7 @@ namespace CS2M.Networking
 
         public void PlayerTypeChanged(PlayerType oldPlayerType, PlayerType newPlayerType)
         {
-            Log.ErrorWithStackTrace(
+            Log.Debug(
                 $"RemotePlayer: {Username} ({PlayerId}) Player type for remote player shouldn't be changed after initialization");
         }
 

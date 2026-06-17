@@ -16,16 +16,6 @@ namespace CS2M.API.Commands
         public abstract Type CommandType { get; }
 
         /// <summary>
-        ///     Indicates if this command represents a transaction that needs tracking
-        /// </summary>
-        public bool TransactionCmd { get; set; } = true;
-
-        /// <summary>
-        ///     Indicates if this command should be automatically relayed by the server to other clients
-        /// </summary>
-        public bool RelayOnServer { get; set; } = true;
-
-        /// <summary>
         ///     Generic parse/execution entry point for compatability
         /// </summary>
         public virtual void Parse(BaseCommand command, NetPeer peer = null)
@@ -122,6 +112,11 @@ namespace CS2M.API.Commands
         {
             if (command is TCommand typedCommand)
             {
+                if (!typedCommand.Validate())
+                {
+                    Log.Warn($"Command validation failed: {typedCommand.CommandType}");
+                    return;
+                }
                 Handle(typedCommand);
             }
             else
@@ -143,12 +138,6 @@ namespace CS2M.API.Commands
     {
         protected sealed override void Handle(TCommand command)
         {
-            if (!command.Validate())
-            {
-                Log.Warn($"Client command validation failed: {command.CommandType}");
-                return;
-            }
-
             OnValidatedCommand(command);
         }
 
@@ -175,12 +164,6 @@ namespace CS2M.API.Commands
 
         protected sealed override void Handle(TCommand command)
         {
-            if (!command.Validate())
-            {
-                Log.Warn($"Server command validation failed: {command.CommandType}");
-                return;
-            }
-
             OnValidatedCommand(command);
         }
 

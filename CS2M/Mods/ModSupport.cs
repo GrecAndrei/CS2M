@@ -30,17 +30,6 @@ namespace CS2M.Mods
             }
         }
 
-        private static IEnumerable<string> AssetNames
-        {
-            get
-            {
-                return new List<string>(); /*PackageManager.FilterAssets(UserAssetType.CustomAssetMetaData)
-                    .Where(asset => asset.isEnabled)
-                    .Select(asset => new EntryData(asset))
-                    .Select(entry => entry.entryName.Split('(')[0].Trim());*/
-            }
-        }
-
         public void Init()
         {
             LoadModConnections();

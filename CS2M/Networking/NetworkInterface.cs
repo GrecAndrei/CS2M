@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Colossal;
 using CS2M.API.Commands;
@@ -30,6 +31,7 @@ namespace CS2M.Networking
         public delegate void OnPlayerLeft(Player player);
 
         private static NetworkInterface _instance;
+        private static readonly object _listLock = new();
         private readonly HashSet<int> _worldTransfersInProgress = new();
         private readonly Dictionary<int, int> _worldTransferIds = new();
 
@@ -51,7 +53,18 @@ namespace CS2M.Networking
             PlayerListJoined.Add(LocalPlayer);
         }
 
-        public static NetworkInterface Instance => _instance ??= new NetworkInterface();
+        public static NetworkInterface Instance
+        {
+            get
+            {
+                if (_instance == null)
+                {
+                    var newInstance = new NetworkInterface();
+                    Interlocked.CompareExchange(ref _instance, newInstance, null);
+                }
+                return _instance;
+            }
+        }
 
         /// <summary>
         ///     Event is triggered, when a player is connected on the network level
@@ -137,10 +150,13 @@ namespace CS2M.Networking
                 return null;
             }
 
-            return PlayerListConnected
-                .Where(p => p is RemotePlayer)
-                .Cast<RemotePlayer>()
-                .FirstOrDefault(p => p.NetPeer != null && p.NetPeer.Id == peer.Id);
+            lock (_listLock)
+            {
+                return PlayerListConnected
+                    .Where(p => p is RemotePlayer)
+                    .Cast<RemotePlayer>()
+                    .FirstOrDefault(p => p.NetPeer != null && p.NetPeer.Id == peer.Id);
+            }
         }
 
         public bool IsPeerConnected(NetPeer peer)
@@ -150,10 +166,13 @@ namespace CS2M.Networking
                 return false;
             }
 
-            return PlayerListConnected
-                .Where(p => p is RemotePlayer)
-                .Cast<RemotePlayer>()
-                .Any(p => p.NetPeer != null && p.NetPeer.Id == peer.Id);
+            lock (_listLock)
+            {
+                return PlayerListConnected
+                    .Where(p => p is RemotePlayer)
+                    .Cast<RemotePlayer>()
+                    .Any(p => p.NetPeer != null && p.NetPeer.Id == peer.Id);
+            }
         }
 
         public bool IsPeerJoined(NetPeer peer)
@@ -163,10 +182,13 @@ namespace CS2M.Networking
                 return false;
             }
 
-            return PlayerListJoined
-                .Where(p => p is RemotePlayer)
-                .Cast<RemotePlayer>()
-                .Any(p => p.NetPeer != null && p.NetPeer.Id == peer.Id);
+            lock (_listLock)
+            {
+                return PlayerListJoined
+                    .Where(p => p is RemotePlayer)
+                    .Cast<RemotePlayer>()
+                    .Any(p => p.NetPeer != null && p.NetPeer.Id == peer.Id);
+            }
         }
 
         public bool PlayerJoined(NetPeer peer)
@@ -184,7 +206,10 @@ namespace CS2M.Networking
             }
 
             EndWorldTransfer(peer.Id);
-            PlayerListJoined.Add(player);
+            lock (_listLock)
+            {
+                PlayerListJoined.Add(player);
+            }
             PlayerJoinedEvent?.Invoke(player);
             Log.Debug($"RemotePlayer '{player.Username}' joined gameplay.");
             return true;
@@ -198,8 +223,13 @@ namespace CS2M.Networking
                 return false;
             }
 
-            bool wasJoined = PlayerListJoined.Remove(player);
-            bool wasConnected = PlayerListConnected.Remove(player);
+            bool wasJoined;
+            bool wasConnected;
+            lock (_listLock)
+            {
+                wasJoined = PlayerListJoined.Remove(player);
+                wasConnected = PlayerListConnected.Remove(player);
+            }
 
             if (wasJoined)
             {
@@ -219,19 +249,25 @@ namespace CS2M.Networking
 
         public void ResetRemotePlayers()
         {
-            PlayerListConnected.RemoveAll(player => player is RemotePlayer);
-            PlayerListJoined.RemoveAll(player => player is RemotePlayer);
+            lock (_listLock)
+            {
+                PlayerListConnected.RemoveAll(player => player is RemotePlayer);
+                PlayerListJoined.RemoveAll(player => player is RemotePlayer);
+            }
             _worldTransfersInProgress.Clear();
             _worldTransferIds.Clear();
 
-            if (!PlayerListConnected.Contains(LocalPlayer))
+            lock (_listLock)
             {
-                PlayerListConnected.Add(LocalPlayer);
-            }
+                if (!PlayerListConnected.Contains(LocalPlayer))
+                {
+                    PlayerListConnected.Add(LocalPlayer);
+                }
 
-            if (!PlayerListJoined.Contains(LocalPlayer))
-            {
-                PlayerListJoined.Add(LocalPlayer);
+                if (!PlayerListJoined.Contains(LocalPlayer))
+                {
+                    PlayerListJoined.Add(LocalPlayer);
+                }
             }
         }
 
@@ -250,7 +286,10 @@ namespace CS2M.Networking
             }
 
             Log.Debug($"RemotePlayer '{player.Username}' connected.");
-            PlayerListConnected.Add(player);
+            lock (_listLock)
+            {
+                PlayerListConnected.Add(player);
+            }
             PlayerConnectedEvent?.Invoke(player);
         }
 

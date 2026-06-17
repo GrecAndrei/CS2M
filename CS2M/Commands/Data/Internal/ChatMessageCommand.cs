@@ -33,7 +33,7 @@ namespace CS2M.Commands.Data.Internal
         ///     Timestamp when message was created
         /// </summary>
         [Key(3)]
-        public long Timestamp { get; set; } = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        public new long Timestamp { get; set; } = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         
         /// <summary>
         ///     Target player ID if whisper message

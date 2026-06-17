@@ -48,5 +48,7 @@ namespace CS2M.BaseGame.Commands
         public RoadControlPointSnapshot ApplyStartPoint { get; set; }
         public RoadControlPointSnapshot LastRaycastPoint { get; set; }
         public RoadControlPointSnapshot[] ControlPoints { get; set; }
+
+        public override bool Validate() => true;
     }
 }

@@ -133,7 +133,7 @@ namespace CS2M.BaseGame
 
             try
             {
-                using (RoadSyncPatch.BeginReplayScope())
+                using (ReplayScope.BeginReplayScope())
                 {
                     JobHandle handle = default;
                     object updateHandleObj = ReflectionHelper.Call(

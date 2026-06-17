@@ -14,11 +14,6 @@ namespace CS2M.Util
     {
         // Cache for resolved addresses (prevents repeated DNS lookups)
         private static readonly ConcurrentDictionary<string, IPAddress> _dnsCache = new();
-        private const int CACHE_TTL_SECONDS = 300; // 5 minutes
-        
-        // Track last cache clear time
-        private static DateTime _lastCacheClear = DateTime.UtcNow;
-        private const int CACHE_PURGE_INTERVAL_MINUTES = 60;
         
         /// <summary>
         ///     Create IPEndPoint from hostname/IP and port
@@ -66,25 +61,22 @@ namespace CS2M.Util
         public static IPAddress ResolveAddress(string hostname)
         {
             ValidateHostname(hostname);
-            
-            // Purge old cache entries periodically
-            PurgeOldCacheEntries();
-            
+
             // Try cached entry first
             if (_dnsCache.TryGetValue(hostname, out var cached))
             {
                 Log.Trace($"DNS cache hit for '{hostname}'");
                 return cached;
             }
-            
+
             // Resolve and cache
             var resolved = Dns.GetHostEntry(hostname).AddressList[0];
-            
+
             if (_dnsCache.TryAdd(hostname, resolved))
             {
                 Log.Trace($"DNS resolved: {hostname} -> {resolved}");
             }
-            
+
             return resolved;
         }
         
@@ -116,39 +108,20 @@ namespace CS2M.Util
         {
             if (string.IsNullOrWhiteSpace(hostname))
                 throw new ArgumentException("Hostname cannot be null or empty", nameof(hostname));
-            
+
             if (hostname.Length > 253)
                 throw new ArgumentException("Hostname too long (max 253 characters)", nameof(hostname));
-            
-            // Basic validation - allows dots, hyphens, alphanumeric
+
+            // Basic validation - allows dots, hyphens, brackets (IPv6), underscores, alphanumeric
             foreach (char c in hostname)
             {
-                if (!char.IsLetterOrDigit(c) && c != '.' && c != '-')
+                if (!char.IsLetterOrDigit(c) && c != '.' && c != '-' && c != '[' && c != ']' && c != '_')
                 {
                     throw new ArgumentException($"Invalid character in hostname: '{c}'", nameof(hostname));
                 }
             }
         }
-        
-        /// <summary>
-        ///     Purge cache entries older than TTL
-        /// </summary>
-        private static void PurgeOldCacheEntries()
-        {
-            var now = DateTime.UtcNow;
-            
-            if ((now - _lastCacheClear).TotalMinutes < CACHE_PURGE_INTERVAL_MINUTES)
-                return;
-            
-            _lastCacheClear = now;
-            
-            // Simple approach: clear all and rebuild as needed
-            // Better implementations would timestamp each entry
-            _dnsCache.Clear();
-            
-            Log.Debug("DNS cache purged (TTL expired)");
-        }
-        
+
         /// <summary>
         ///     Format IPEndPoint as string
         /// </summary>
@@ -185,7 +158,7 @@ namespace CS2M.Util
         public static IPAddress GetLocalIpAddress()
         {
             var host = Dns.GetHostEntry(Dns.GetHostName());
-            
+
             foreach (var ip in host.AddressList)
             {
                 if (ip.AddressFamily == AddressFamily.InterNetwork)
@@ -195,9 +168,8 @@ namespace CS2M.Util
                         return ip;
                 }
             }
-            
-            // Fallback to any
-            return IPAddress.Any;
+
+            throw new InvalidOperationException("No non-loopback IPv4 address found on this host.");
         }
         
         /// <summary>

@@ -43,6 +43,7 @@ namespace CS2M
         {
             // Set instance reference.
             Instance = this;
+            Log.Initialize();
             Log.Info($"Loading {Name} version {Assembly.GetExecutingAssembly().GetName().Version}");
 
             // Register mod settings to game options UI.
@@ -67,9 +68,7 @@ namespace CS2M
             harmony.PatchAll(Assembly.GetExecutingAssembly());
 
             // Set up systems
-            updateSystem.UpdateBefore<NetworkingSystem>(SystemUpdatePhase.PreSimulation);
             updateSystem.UpdateAt<UISystem>(SystemUpdatePhase.UIUpdate);
-            updateSystem.UpdateAt<CS2M.Systems.EconomyInspectorSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAt<CS2M.Systems.CooperativeSyncSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAt<CS2M.BaseGame.Systems.TimeSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAt<CS2M.BaseGame.Systems.MoneySyncSystem>(SystemUpdatePhase.GameSimulation);

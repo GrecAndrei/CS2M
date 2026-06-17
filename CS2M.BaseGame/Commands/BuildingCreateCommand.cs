@@ -95,7 +95,7 @@ namespace CS2M.BaseGame.Commands
                                          RotationY * RotationY + 
                                          RotationZ * RotationZ + 
                                          RotationW * RotationW);
-            if (magnitude < 0.9f || magnitude > 1.1f)
+            if (magnitude < 0.95f || magnitude > 1.05f)
                 return false;
             
             return true;

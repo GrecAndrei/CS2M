@@ -19,8 +19,6 @@ namespace CS2M.Commands.Handler.BaseGame
 
         public AreaApplyCommandHandler()
         {
-            TransactionCmd = false;
-            RelayOnServer = false;
         }
 
         protected override void Handle(AreaApplyCommand command)
@@ -61,8 +59,9 @@ namespace CS2M.Commands.Handler.BaseGame
                 return;
             }
 
-            command.RequestOnly = false;
-            Command.SendToClients?.Invoke(command);
+            var replication = (AreaApplyCommand)command.Clone();
+            replication.RequestOnly = false;
+            Command.SendToClients?.Invoke(replication);
 
             // Log activity to the cooperative ledger
             Unity.Mathematics.float3 pos = Unity.Mathematics.float3.zero;
@@ -119,7 +118,8 @@ namespace CS2M.Commands.Handler.BaseGame
         {
             if (nonce == 0)
             {
-                return true;
+                Log.Warn($"AreaApplyCommandHandler: rejected command with apply nonce 0.");
+                return false;
             }
 
             lock (sync)

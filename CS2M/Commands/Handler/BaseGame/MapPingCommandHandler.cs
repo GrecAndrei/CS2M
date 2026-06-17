@@ -8,8 +8,6 @@ namespace CS2M.Commands.Handler.BaseGame
     {
         public MapPingCommandHandler()
         {
-            TransactionCmd = false;
-            RelayOnServer = false;
         }
 
         protected override void Handle(MapPingCommand command)

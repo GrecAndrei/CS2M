@@ -33,7 +33,27 @@ namespace CS2M.Networking
         {
             PlayerStatusChangedEvent += PlayerStatusChanged;
             PlayerTypeChangedEvent += PlayerTypeChanged;
-            _saveLoadHelper = World.DefaultGameObjectInjectionWorld.GetOrCreateSystemManaged<SaveLoadHelper>();
+            _saveLoadHelper = EnsureSaveLoadHelper();
+        }
+
+        private SaveLoadHelper EnsureSaveLoadHelper()
+        {
+            var world = World.DefaultGameObjectInjectionWorld;
+            return world != null ? world.GetOrCreateSystemManaged<SaveLoadHelper>() : null;
+        }
+
+        private UISystem EnsureUiSystem()
+        {
+            var world = World.DefaultGameObjectInjectionWorld;
+            return world != null ? world.GetOrCreateSystemManaged<UISystem>() : null;
+        }
+
+        private void EnsureNetworkManager()
+        {
+            if (_networkManager == null)
+            {
+                _networkManager = new NetworkManager();
+            }
         }
 
         public bool GetServerInfo(ConnectionConfig connectionConfig)
@@ -43,7 +63,7 @@ namespace CS2M.Networking
                 return false;
             }
 
-            _networkManager = new NetworkManager();
+            EnsureNetworkManager();
 
             _networkManager.NatHolePunchSuccessfulEvent += NatConnect;
             _networkManager.NatHolePunchFailedEvent += DirectConnect;
@@ -53,13 +73,13 @@ namespace CS2M.Networking
 
             if (!_networkManager.InitConnect(connectionConfig))
             {
-                _uiSystem.SetJoinErrors("CS2M.UI.JoinError.ClientFailed");
+                _uiSystem?.SetJoinErrors("CS2M.UI.JoinError.ClientFailed");
                 return false;
             }
 
             if (!_networkManager.SetupNatConnect())
             {
-                _uiSystem.SetJoinErrors("CS2M.UI.JoinError.InvalidIP");
+                _uiSystem?.SetJoinErrors("CS2M.UI.JoinError.InvalidIP");
                 return false;
             }
 
@@ -77,7 +97,7 @@ namespace CS2M.Networking
 
             if (!_networkManager.Connect())
             {
-                _uiSystem.SetJoinErrors("CS2M.UI.JoinError.FailedToConnect");
+                _uiSystem?.SetJoinErrors("CS2M.UI.JoinError.FailedToConnect");
                 Inactive();
                 return false;
             }
@@ -96,7 +116,7 @@ namespace CS2M.Networking
 
             if (!_networkManager.Connect())
             {
-                _uiSystem.SetJoinErrors("CS2M.UI.JoinError.FailedToConnect");
+                _uiSystem?.SetJoinErrors("CS2M.UI.JoinError.FailedToConnect");
                 Inactive();
                 return false;
             }
@@ -107,7 +127,7 @@ namespace CS2M.Networking
 
         public bool ConnectionFailed()
         {
-            _uiSystem.SetJoinErrors("CS2M.UI.JoinError.FailedToConnect");
+            _uiSystem?.SetJoinErrors("CS2M.UI.JoinError.FailedToConnect");
             Inactive();
             return true;
         }
@@ -194,7 +214,7 @@ namespace CS2M.Networking
                 errors.Add(string.Join(", ", clientNotServer));
             }
 
-            _uiSystem.SetJoinErrors(errors.ToArray());
+            _uiSystem?.SetJoinErrors(errors.ToArray());
         }
 
         public bool WaitingToJoin(bool isRetry = false)
@@ -233,7 +253,7 @@ namespace CS2M.Networking
 
             PlayerStatus = PlayerStatus.DOWNLOADING_MAP;
             _packetStream = null;
-            _uiSystem.SetLoadProgress(0, 0);
+            _uiSystem?.SetLoadProgress(0, 0);
             return true;
         }
 
@@ -284,7 +304,7 @@ namespace CS2M.Networking
                 if (_packetStream == null)
                 {
                     Log.Warn("Received world slice without initialized packet stream");
-                    _uiSystem.SetJoinErrors("CS2M.UI.JoinError.DownloadFailed");
+                    _uiSystem?.SetJoinErrors("CS2M.UI.JoinError.DownloadFailed");
                     Inactive();
                     return;
                 }
@@ -294,7 +314,7 @@ namespace CS2M.Networking
             {
                 Log.Warn(
                     $"World transfer slice sequence mismatch. Expected {_lastSliceIndex + 1}, got {cmd.SliceIndex}.");
-                _uiSystem.SetJoinErrors("CS2M.UI.JoinError.DownloadFailed");
+                _uiSystem?.SetJoinErrors("CS2M.UI.JoinError.DownloadFailed");
                 Inactive();
                 return;
             }
@@ -302,7 +322,7 @@ namespace CS2M.Networking
             if (!_packetStream.AppendSlice(cmd.WorldSlice))
             {
                 Log.Warn("Failed to append world slice to packet stream.");
-                _uiSystem.SetJoinErrors("CS2M.UI.JoinError.DownloadFailed");
+                _uiSystem?.SetJoinErrors("CS2M.UI.JoinError.DownloadFailed");
                 Inactive();
                 return;
             }
@@ -310,13 +330,13 @@ namespace CS2M.Networking
             if (cmd.RemainingBytes < 0)
             {
                 Log.Warn($"Received invalid remaining byte count {cmd.RemainingBytes} for world transfer.");
-                _uiSystem.SetJoinErrors("CS2M.UI.JoinError.DownloadFailed");
+                _uiSystem?.SetJoinErrors("CS2M.UI.JoinError.DownloadFailed");
                 Inactive();
                 return;
             }
 
             _lastSliceIndex = cmd.SliceIndex;
-            _uiSystem.SetLoadProgress((int)_packetStream.Length, cmd.RemainingBytes);
+            _uiSystem?.SetLoadProgress((int)_packetStream.Length, cmd.RemainingBytes);
 
             if (cmd.RemainingBytes == 0)
             {
@@ -407,7 +427,7 @@ namespace CS2M.Networking
                 return false;
             }
 
-            _networkManager = new NetworkManager();
+            EnsureNetworkManager();
 
             bool serverStarted = _networkManager.StartServer(connectionConfig);
             if (!serverStarted)
@@ -451,7 +471,7 @@ namespace CS2M.Networking
         {
             if (_uiSystem == null)
             {
-                _uiSystem = World.DefaultGameObjectInjectionWorld.GetOrCreateSystemManaged<UISystem>();
+                _uiSystem = EnsureUiSystem();
             }
 
             if (PlayerStatus != PlayerStatus.INACTIVE)

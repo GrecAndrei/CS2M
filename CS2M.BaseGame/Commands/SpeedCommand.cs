@@ -1,4 +1,5 @@
 using CS2M.API.Commands;
+using CS2M.BaseGame;
 using CS2M.BaseGame.Systems;
 using Unity.Entities;
 using UnityEngine;
@@ -9,6 +10,8 @@ namespace CS2M.BaseGame.Commands
     {
         public float Speed { get; set; }
         public bool Paused { get; set; }
+
+        public override bool Validate() => true;
     }
 
     public class SpeedCommandHandler : CommandHandler<SpeedCommand>

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Reflection;
 
@@ -11,6 +12,8 @@ namespace CS2M.Helpers
             | BindingFlags.NonPublic
             | BindingFlags.Instance
             | BindingFlags.Static;
+
+        private static readonly ConcurrentDictionary<(Type, string, Type[]), MethodInfo> _methodCache = new();
 
         public static int GetEnumValue(Type enumType, string value)
         {
@@ -40,7 +43,9 @@ namespace CS2M.Helpers
 
         public static object Call(Type type, string name, Type[] types, params object[] param)
         {
-            MethodInfo methodInfo = type.GetMethod(name, AllAccessFlags, null, types, null);
+            var key = (type, name, types);
+            MethodInfo methodInfo = _methodCache.GetOrAdd(key,
+                k => k.Item1.GetMethod(k.Item2, AllAccessFlags, null, k.Item3, null));
             if (methodInfo == null)
             {
                 Log.Error($"ReflectionHelper::Call failed on {type}::{name}");
@@ -72,10 +77,13 @@ namespace CS2M.Helpers
 
         public static object Call(object obj, string name, Type[] types, params object[] param)
         {
-            MethodInfo methodInfo = obj.GetType().GetMethod(name, AllAccessFlags, null, types, null);
+            var type = obj.GetType();
+            var key = (type, name, types);
+            MethodInfo methodInfo = _methodCache.GetOrAdd(key,
+                k => k.Item1.GetMethod(k.Item2, AllAccessFlags, null, k.Item3, null));
             if (methodInfo == null)
             {
-                Log.Error($"ReflectionHelper::Call failed on {obj.GetType()}.{name}");
+                Log.Error($"ReflectionHelper::Call failed on {type}.{name}");
                 return null;
             }
             return methodInfo.Invoke(obj, param);

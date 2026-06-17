@@ -23,7 +23,7 @@ namespace CS2M.Commands.Handler.BaseGame
                 Log.Trace($"Processing frame sync: {command.Frame}");
 
                 // Validate frame doesn't jump too far ahead
-                if (IsValidFrameJump(command.Frame))
+                if (!IsValidFrameJump(command.Frame))
                 {
                     Log.Warn($"Frame jump too large: {_lastProcessedFrame} -> {command.Frame}");
                     return;

@@ -15,11 +15,11 @@ namespace CS2M.Helpers
         private static long _totalBytesReceived = 0;
         private static int _totalPacketsSent = 0;
         private static int _totalPacketsReceived = 0;
-        private static double _averageLatency = 0.0;
-        
-        private const int MAX_HISTORY_SIZE = 300; // 5 minutes at 1-second intervals
-        private static readonly System.Collections.Generic.List<double> _latencyHistory = new(MAX_HISTORY_SIZE);
-        private static readonly System.Collections.Generic.List<long> _bandwidthHistory = new(MAX_HISTORY_SIZE);
+        private static long _averageLatencyBits = 0;
+
+        private const int MAX_HISTORY_SIZE = 300;
+        private static readonly ConcurrentQueue<double> _latencyHistory = new();
+        private static readonly ConcurrentQueue<long> _bandwidthHistory = new();
 
         /// <summary>
         ///     Record bytes sent for a specific peer
@@ -27,17 +27,22 @@ namespace CS2M.Helpers
         public static void RecordBytesSent(int peerId, long bytes)
         {
             Interlocked.Add(ref _totalBytesSent, bytes);
-            
-            var stats = _peerStats.GetOrAdd(peerId, _ => new PeerStats());
-            lock (stats)
+
+            _peerStats.AddOrUpdate(peerId, id => new PeerStats
             {
-                stats.BytesSent += bytes;
-                stats.TotalTransactions++;
-                
-                if (_bandwidthHistory.Count >= MAX_HISTORY_SIZE)
-                    _bandwidthHistory.RemoveAt(0);
-                
-                _bandwidthHistory.Add(bytes);
+                BytesSent = bytes,
+                TotalTransactions = 1
+            }, (id, existing) =>
+            {
+                Interlocked.Add(ref existing.BytesSent, bytes);
+                Interlocked.Increment(ref existing.TotalTransactions);
+                return existing;
+            });
+
+            _bandwidthHistory.Enqueue(bytes);
+            while (_bandwidthHistory.Count > MAX_HISTORY_SIZE)
+            {
+                _bandwidthHistory.TryDequeue(out _);
             }
         }
 
@@ -47,11 +52,12 @@ namespace CS2M.Helpers
         public static void RecordBytesReceived(long bytes)
         {
             Interlocked.Add(ref _totalBytesReceived, bytes);
-            
-            if (_bandwidthHistory.Count >= MAX_HISTORY_SIZE)
-                _bandwidthHistory.RemoveAt(0);
-            
-            _bandwidthHistory.Add(bytes);
+
+            _bandwidthHistory.Enqueue(bytes);
+            while (_bandwidthHistory.Count > MAX_HISTORY_SIZE)
+            {
+                _bandwidthHistory.TryDequeue(out _);
+            }
         }
 
         public static void RecordPacketSent()
@@ -72,20 +78,25 @@ namespace CS2M.Helpers
         /// </summary>
         public static void UpdateLatency(int peerId, int latencyMs)
         {
-            var stats = _peerStats.GetOrAdd(peerId, _ => new PeerStats());
-            lock (stats)
+            _peerStats.AddOrUpdate(peerId, id => new PeerStats
             {
-                // Simple moving average
-                int oldAvg = (int)_averageLatency;
-                _averageLatency = (oldAvg + latencyMs) / 2.0;
-                
-                stats.AverageLatency = latencyMs;
-                stats.LastActivity = DateTime.UtcNow;
-                
-                if (_latencyHistory.Count >= MAX_HISTORY_SIZE)
-                    _latencyHistory.RemoveAt(0);
-                
-                _latencyHistory.Add(latencyMs);
+                AverageLatency = latencyMs,
+                LastActivity = DateTime.UtcNow
+            }, (id, existing) =>
+            {
+                existing.AverageLatency = latencyMs;
+                existing.LastActivity = DateTime.UtcNow;
+                return existing;
+            });
+
+            long oldAvg = Volatile.Read(ref _averageLatencyBits);
+            long newAvg = (((long)oldAvg) + (long)latencyMs) / 2L;
+            Volatile.Write(ref _averageLatencyBits, newAvg);
+
+            _latencyHistory.Enqueue(latencyMs);
+            while (_latencyHistory.Count > MAX_HISTORY_SIZE)
+            {
+                _latencyHistory.TryDequeue(out _);
             }
         }
 
@@ -96,11 +107,11 @@ namespace CS2M.Helpers
         {
             return new NetworkStatsSummary
             {
-                TotalBytesSent = _totalBytesSent,
-                TotalBytesReceived = _totalBytesReceived,
-                TotalPacketsSent = _totalPacketsSent,
-                TotalPacketsReceived = _totalPacketsReceived,
-                AverageLatency = _averageLatency,
+                TotalBytesSent = Interlocked.Read(ref _totalBytesSent),
+                TotalBytesReceived = Interlocked.Read(ref _totalBytesReceived),
+                TotalPacketsSent = Volatile.Read(ref _totalPacketsSent),
+                TotalPacketsReceived = Volatile.Read(ref _totalPacketsReceived),
+                AverageLatency = Volatile.Read(ref _averageLatencyBits),
                 ActivePeers = _peerStats.Count
             };
         }
@@ -110,14 +121,17 @@ namespace CS2M.Helpers
         /// </summary>
         public static double GetBandwidthPerSecond()
         {
-            if (_bandwidthHistory.Count == 0)
+            if (_bandwidthHistory.IsEmpty)
                 return 0;
 
             long total = 0;
+            long count = 0;
             foreach (var val in _bandwidthHistory)
+            {
                 total += val;
-
-            return total / _bandwidthHistory.Count;
+                count++;
+            }
+            return count == 0 ? 0 : (double)total / count;
         }
 
         /// <summary>
@@ -130,14 +144,11 @@ namespace CS2M.Helpers
             Interlocked.Exchange(ref _totalBytesReceived, 0);
             Interlocked.Exchange(ref _totalPacketsSent, 0);
             Interlocked.Exchange(ref _totalPacketsReceived, 0);
-            _averageLatency = 0;
-            
-            lock (_latencyHistory)
-                _latencyHistory.Clear();
-            
-            lock (_bandwidthHistory)
-                _bandwidthHistory.Clear();
-            
+            Volatile.Write(ref _averageLatencyBits, 0);
+
+            while (_latencyHistory.TryDequeue(out _)) { }
+            while (_bandwidthHistory.TryDequeue(out _)) { }
+
             Log.Debug("Network statistics reset");
         }
 
@@ -155,7 +166,7 @@ namespace CS2M.Helpers
         public static void LogCurrentStats()
         {
             var summary = GetSummary();
-            
+
             Log.Info($"Network Stats: Peers={summary.ActivePeers}, " +
                     $"Tx={summary.TotalBytesSent}B/{summary.TotalPacketsSent}pkts, " +
                     $"Rx={summary.TotalBytesReceived}B/{summary.TotalPacketsReceived}pkts, " +

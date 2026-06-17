@@ -7,5 +7,6 @@ namespace CS2M.Commands.Data.Internal
     /// </summary>
     public class JoinReadyCommand : CommandBase
     {
+        public override bool Validate() => true;
     }
 }

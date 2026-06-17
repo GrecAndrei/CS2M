@@ -11,5 +11,7 @@ namespace CS2M.BaseGame.Commands
         public bool IsMultiSelect { get; set; }
         public System.Collections.Generic.List<int> MultiTargetIndices { get; set; }
         public System.Collections.Generic.List<int> MultiTargetVersions { get; set; }
+
+        public override bool Validate() => true;
     }
 }

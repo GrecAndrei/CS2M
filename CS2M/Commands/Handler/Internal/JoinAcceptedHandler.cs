@@ -8,8 +8,6 @@ namespace CS2M.Commands.Handler.Internal
     {
         public JoinAcceptedHandler()
         {
-            TransactionCmd = false;
-            RelayOnServer = false;
         }
 
         protected override void Handle(JoinAcceptedCommand command)

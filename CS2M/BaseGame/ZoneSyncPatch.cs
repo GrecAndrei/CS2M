@@ -19,7 +19,7 @@ namespace CS2M.BaseGame
             out ZoneApplyCommand __state)
         {
             __state = null;
-            if (!ShouldHandle(__instance))
+            if (ReplayScope.IsReplayActive || !ShouldHandle(__instance))
             {
                 return true;
             }
@@ -65,7 +65,7 @@ namespace CS2M.BaseGame
 
         public static void Postfix(ZoneApplyCommand __state)
         {
-            if (Command.CurrentRole != MultiplayerRole.Server || __state == null)
+            if (ReplayScope.IsReplayActive || Command.CurrentRole != MultiplayerRole.Server || __state == null)
             {
                 return;
             }

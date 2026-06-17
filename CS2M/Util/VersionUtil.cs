@@ -10,8 +10,7 @@ namespace CS2M.Util
     /// </summary>
     public static class VersionUtil
     {
-        private const string CURRENT_MOD_VERSION = "2.0.0";
-        
+
         /// <summary>
         ///     Get current mod version as simple Version object
         /// </summary>

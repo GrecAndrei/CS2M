@@ -41,6 +41,51 @@ namespace CS2M.BaseGame.Commands
 
         public override bool Validate()
         {
+            if (TargetPlayerId < 0)
+            {
+                return false;
+            }
+
+            if (TargetUsername != null && TargetUsername.Length > 128)
+            {
+                return false;
+            }
+            if (ActiveTool != null && ActiveTool.Length > 128)
+            {
+                return false;
+            }
+            if (ActivePrefab != null && ActivePrefab.Length > 128)
+            {
+                return false;
+            }
+
+            const float MAX_COORD = 50000f;
+            if (PositionX < -MAX_COORD || PositionX > MAX_COORD)
+            {
+                return false;
+            }
+            if (PositionY < -MAX_COORD || PositionY > MAX_COORD)
+            {
+                return false;
+            }
+            if (PositionZ < -MAX_COORD || PositionZ > MAX_COORD)
+            {
+                return false;
+            }
+
+            if (CameraFocusX < -MAX_COORD || CameraFocusX > MAX_COORD)
+            {
+                return false;
+            }
+            if (CameraFocusY < -MAX_COORD || CameraFocusY > MAX_COORD)
+            {
+                return false;
+            }
+            if (CameraFocusZ < -MAX_COORD || CameraFocusZ > MAX_COORD)
+            {
+                return false;
+            }
+
             return true;
         }
     }

@@ -111,7 +111,7 @@ namespace CS2M.BaseGame
 
             try
             {
-                using (AreaSyncPatch.BeginReplayScope())
+                using (ReplayScope.BeginReplayScope())
                 {
                     JobHandle handle = default;
                     object updateHandleObj = ReflectionHelper.Call(
@@ -264,12 +264,6 @@ namespace CS2M.BaseGame
 
         private static int NextApplyNonce()
         {
-            int next = Interlocked.Increment(ref _applyNonceCounter);
-            if (next != 0)
-            {
-                return next;
-            }
-
             return Interlocked.Increment(ref _applyNonceCounter);
         }
 

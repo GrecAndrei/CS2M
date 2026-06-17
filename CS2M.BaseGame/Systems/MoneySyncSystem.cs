@@ -30,14 +30,10 @@ namespace CS2M.BaseGame.Systems
         private readonly Queue<MoneySample> _moneyHistory = new();
         private const int MAX_HISTORY_SIZE = 10;
         private double _smoothedMoney = 0;
-        private double _smoothingAlpha = 0.1;
-        
+
         // Anti-cheat: track recent values for rate checking
         private readonly List<MoneyMeasurement> _recentMeasurements = new();
         private const int MAX_MEASUREMENTS = 60;
-        
-        // Server authority state
-        private bool _serverAuthoritative = true;
         private uint _authorityEpoch = 0;
         
         protected override void OnCreate()
@@ -103,7 +99,6 @@ namespace CS2M.BaseGame.Systems
         private void HandleClientLogic()
         {
             ProcessMoneyHistory();
-            UpdateSmoothedMoney();
         }
 
         private long GetActualMoney()
@@ -139,34 +134,23 @@ namespace CS2M.BaseGame.Systems
             }
         }
 
-        private void UpdateSmoothedMoney()
-        {
-            // Smoothly interpolate towards the actual value
-            double target = _citySystem.moneyAmount;
-            _smoothedMoney = LinearInterpolate(_smoothedMoney, target, _smoothingAlpha);
-            
-            // Occasionally correct based on server authority (if lag detected)
-            if (Math.Abs(_smoothedMoney - target) > 10000)
-            {
-                _smoothedMoney = target; // Snap if too far off
-            }
-        }
-
-        private double LinearInterpolate(double a, double b, double alpha)
-        {
-            return a + (b - a) * alpha;
-        }
-
         private void SendMoneyAuthority(long money)
         {
+            _authorityEpoch++;
             Command.SendToAll(new MoneyCommand
             {
                 Money = money,
                 AuthorityEpoch = _authorityEpoch,
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             });
-            
+
             Log.Trace($"Broadcasting money authority: {money}, epoch {_authorityEpoch}");
+        }
+
+        public uint BumpEpoch()
+        {
+            _authorityEpoch++;
+            return _authorityEpoch;
         }
 
         private void ApplyAntiCheatChecks(long currentMoney)

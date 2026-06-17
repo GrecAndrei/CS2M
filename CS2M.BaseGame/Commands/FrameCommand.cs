@@ -1,4 +1,5 @@
 using CS2M.API.Commands;
+using CS2M.BaseGame;
 using UnityEngine;
 using Game.Simulation;
 using Unity.Entities;
@@ -9,6 +10,8 @@ namespace CS2M.BaseGame.Commands
     public class FrameCommand : CommandBase
     {
         public uint Frame { get; set; }
+
+        public override bool Validate() => true;
     }
 
     public class FrameCommandHandler : CommandHandler<FrameCommand>

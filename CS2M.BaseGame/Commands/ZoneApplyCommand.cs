@@ -41,5 +41,7 @@ namespace CS2M.BaseGame.Commands
         public ZoneControlPointSnapshot StartPoint { get; set; }
         public ZoneControlPointSnapshot SnapPoint { get; set; }
         public ZoneControlPointSnapshot RaycastPoint { get; set; }
+
+        public override bool Validate() => true;
     }
 }

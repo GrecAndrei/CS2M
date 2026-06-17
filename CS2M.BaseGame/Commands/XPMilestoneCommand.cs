@@ -1,4 +1,5 @@
 using CS2M.API.Commands;
+using CS2M.BaseGame;
 using CS2M.BaseGame.Systems;
 using Unity.Entities;
 
@@ -8,6 +9,8 @@ namespace CS2M.BaseGame.Commands
     {
         public int XP { get; set; }
         public int NextMilestone { get; set; }
+
+        public override bool Validate() => true;
     }
 
     public class XPMilestoneCommandHandler : CommandHandler<XPMilestoneCommand>

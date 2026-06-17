@@ -1,5 +1,3 @@
-using System;
-using System.Threading;
 using CS2M.API.Commands;
 using CS2M.BaseGame.Commands;
 using CS2M.Networking;
@@ -13,16 +11,6 @@ namespace CS2M.BaseGame
     [HarmonyPatch(new[] { typeof(JobHandle), typeof(bool) })]
     public static class RoadSyncPatch
     {
-        private static int _replayDepth;
-
-        internal static IDisposable BeginReplayScope()
-        {
-            Interlocked.Increment(ref _replayDepth);
-            return new ReplayScope();
-        }
-
-        internal static bool IsReplayActive => Volatile.Read(ref _replayDepth) > 0;
-
         public static bool Prefix(
             NetToolSystem __instance,
             JobHandle inputDeps,
@@ -32,7 +20,7 @@ namespace CS2M.BaseGame
         {
             __state = null;
 
-            if (IsReplayActive || !ShouldHandle(__instance))
+            if (ReplayScope.IsReplayActive || !ShouldHandle(__instance))
             {
                 return true;
             }
@@ -84,7 +72,7 @@ namespace CS2M.BaseGame
 
         public static void Postfix(RoadApplyCommand __state)
         {
-            if (IsReplayActive || Command.CurrentRole != MultiplayerRole.Server || __state == null)
+            if (ReplayScope.IsReplayActive || Command.CurrentRole != MultiplayerRole.Server || __state == null)
             {
                 return;
             }
@@ -106,22 +94,6 @@ namespace CS2M.BaseGame
             }
 
             return Command.CurrentRole == MultiplayerRole.Client || Command.CurrentRole == MultiplayerRole.Server;
-        }
-
-        private sealed class ReplayScope : IDisposable
-        {
-            private bool _disposed;
-
-            public void Dispose()
-            {
-                if (_disposed)
-                {
-                    return;
-                }
-
-                _disposed = true;
-                Interlocked.Decrement(ref _replayDepth);
-            }
         }
     }
 }
