@@ -11,6 +11,8 @@
 
 using System.Net;
 using System.Net.Sockets;
+using CS2M.ApiServer.Core.Commands;
+using CS2M.ApiServer.Workers;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -37,7 +39,7 @@ public interface IUdpDatagramSink
     void Handle(UdpDatagram datagram);
 }
 
-public sealed class ApiUdpListener : BackgroundService
+public sealed class ApiUdpListener : BackgroundService, IProbeReplyChannel
 {
     private readonly ILogger<ApiUdpListener> _logger;
     private readonly UdpListenerOptions _options;
@@ -153,6 +155,16 @@ public sealed class ApiUdpListener : BackgroundService
         await _client
             .SendAsync(payload, payload.Length, target)
             .ConfigureAwait(false);
+    }
+
+    async Task IProbeReplyChannel.SendAsync(ApiCommandBase command, IPEndPoint remote, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(remote);
+        var bytes = _codec is null
+            ? System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(command)
+            : _codec.Encode(command);
+        await SendAsync(bytes, remote, cancellationToken).ConfigureAwait(false);
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
