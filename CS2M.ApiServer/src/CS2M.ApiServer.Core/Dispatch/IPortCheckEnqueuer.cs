@@ -18,6 +18,15 @@ public interface IPortCheckEnqueuer
 public interface IPortCheckWorkItem
 {
     string Token { get; }
+    string LocalIp { get; }
+    int LocalPort { get; }
     int Port { get; }
     DateTimeOffset EnqueuedAt { get; }
 }
+
+public sealed record PortCheckWorkItem(
+    string Token,
+    string LocalIp,
+    int LocalPort,
+    int Port,
+    DateTimeOffset EnqueuedAt) : IPortCheckWorkItem;

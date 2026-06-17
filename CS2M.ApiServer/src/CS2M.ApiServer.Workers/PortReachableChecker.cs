@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Stub port-reachability worker for M2. Consumes PortCheckWorkItem
 // from the channel and logs them; the real TCP probe lands in M3.
-//
-// Even at the M2 stub stage the queue MUST be drained so
-// `BoundedChannelFullMode.DropOldest` doesn't silently throw away
-// real requests while we're busy answering other things.
 
+using CS2M.ApiServer.Core.Dispatch;
 using CS2M.ApiServer.Workers.Channels;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -31,7 +28,7 @@ public sealed class PortReachableChecker : BackgroundService
             _logger.LogInformation(
                 "[stub] would probe {Token} on port {Port} (enqueued at {EnqueuedAt:o})",
                 string.IsNullOrEmpty(item.Token) ? "(unknown)" : item.Token,
-                item.PortToProbe,
+                item.Port,
                 item.EnqueuedAt);
         }
     }

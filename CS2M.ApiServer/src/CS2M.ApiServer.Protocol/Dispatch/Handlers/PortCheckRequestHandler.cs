@@ -47,8 +47,10 @@ public sealed class PortCheckRequestHandler : ApiCommandHandler<PortCheckRequest
         // endpoint on the requested port. Once the mod adds an optional
         // Token field the handler will cross-reference it against the
         // servers table for richer responses.
-        var work = new EnqueuedPortCheck(
+        var work = new PortCheckWorkItem(
             Token: string.Empty,
+            LocalIp: remote.Address.ToString(),
+            LocalPort: remote.Port,
             Port: command.Port,
             EnqueuedAt: DateTimeOffset.UtcNow);
 
@@ -75,6 +77,4 @@ public sealed class PortCheckRequestHandler : ApiCommandHandler<PortCheckRequest
             Message = "probe queued"
         }, remote, cancellationToken).ConfigureAwait(false);
     }
-
-    private sealed record EnqueuedPortCheck(string Token, int Port, DateTimeOffset EnqueuedAt) : IPortCheckWorkItem;
 }

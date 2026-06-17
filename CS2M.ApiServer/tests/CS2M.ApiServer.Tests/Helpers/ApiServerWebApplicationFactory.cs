@@ -34,12 +34,24 @@ public sealed class ApiServerWebApplicationFactory : WebApplicationFactory<Progr
 
     public async Task InitializeAsync()
     {
-        // Eagerly open a shared in-memory SQLite connection so all
-        // scopes see the same store; closing the connection wipes
-        // the database.
-        _sqlite = new SqliteConnection("Filename=:memory:");
+        // Open a shared in-memory SQLite connection. The default
+        // "Filename=:memory:" creates one private database per
+        // connection; adding Cache=Shared makes subsequent
+        // connections land on the same store.
+        _sqlite = new SqliteConnection("Filename=file::memory:?cache=shared");
         await _sqlite.OpenAsync();
         _sqliteConnectionString = _sqlite.ConnectionString;
+        // Force the host to build so the SQLite DbContext is registered
+        // before we call EnsureCreated().
+        _ = Server;
+        await EnsureSqliteSchemaAsync().ConfigureAwait(false);
+    }
+
+    private async Task EnsureSqliteSchemaAsync()
+    {
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApiServerDbContext>();
+        await db.Database.EnsureCreatedAsync().ConfigureAwait(false);
     }
 
     public new async Task DisposeAsync()

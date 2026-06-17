@@ -40,7 +40,7 @@ builder.Services.Configure<PortCheckQueueOptions>(builder.Configuration.GetSecti
 builder.Services.AddSingleton<PortCheckQueue>(sp =>
 {
     var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PortCheckQueueOptions>>().Value;
-    var channel = System.Threading.Channels.Channel.CreateBounded<PortCheckWorkItem>(
+    var channel = System.Threading.Channels.Channel.CreateBounded<CS2M.ApiServer.Core.Dispatch.IPortCheckWorkItem>(
         new System.Threading.Channels.BoundedChannelOptions(opts.Capacity)
         {
             FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest,
