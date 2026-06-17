@@ -35,7 +35,9 @@ builder.Services.Configure<UdpListenerOptions>(builder.Configuration.GetSection(
 builder.Services.AddSingleton<IApiCommandCodec, ApiCommandCodec>();
 builder.Services.AddSingleton<ApiUdpListener>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ApiUdpListener>());
-builder.Services.AddSingleton<IApiCommandReplier, ApiCommandReplier>();
+builder.Services.AddSingleton<IApiCommandReplier>(sp => new ApiCommandReplier(
+    sp.GetRequiredService<IApiCommandCodec>(),
+    () => sp.GetRequiredService<ApiUdpListener>()));
 builder.Services.AddSingleton<IUdpDatagramSink, ApiCommandDispatcher>();
 builder.Services.AddSingleton<ApiCommandDispatcher>();
 builder.Services.AddSingleton<IApiCommandHandler, ServerRegistrationHandler>();
