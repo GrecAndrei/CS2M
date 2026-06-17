@@ -1,260 +1,132 @@
-import {bindValue, trigger, useValue} from "cs2/api";
-import {FocusBoundary} from "cs2/input";
-import {useLocalization} from "cs2/l10n";
-import {Button} from "cs2/ui";
-import mod from "../../mod.json";
-import {setVal} from "../api";
-import {InputField} from "../util/input-field";
-import styles from "./menu-styles.module.scss";
 import React from "react";
+import {useValue} from "cs2/api";
+import {FocusBoundary} from "cs2/input";
+import {Panel, Button} from "cs2/ui";
+import {getModule} from "cs2/modding";
+import {actions, state, isClientSession, isServerRunning} from "../state";
+import {useTranslate, compatibilityText, statusToLabel} from "../utils/localization";
 
-const MIN_PORT = 1;
-const MAX_PORT = 65535;
+const LightOpaqueTheme = getModule("game-ui/common/panel/themes/light-opaque.module.scss", "classes");
+const TransitionSounds = getModule("game-ui/common/animations/transition-sounds.tsx", "panelTransitionSounds");
+const StringInputField = getModule("game-ui/editor/widgets/fields/string-input-field.tsx", "StringInputField");
 
-type TranslateFn = (id: string, fallback?: string | null) => string | null;
-
-export const hostMenuVisible = bindValue<boolean>(mod.id, "HostMenuVisible", false);
-export const modSupport = bindValue<Array<any>>(mod.id, "modSupport", []);
-export const port = bindValue<number>(mod.id, "HostPort", 4230);
-export const hostPassword = bindValue<string>(mod.id, "HostPassword", "");
-export const username = bindValue<string>(mod.id, "Username", "");
-export const playerStatus = bindValue<string>(mod.id, "PlayerStatus", "INACTIVE");
-export const playerType = bindValue<string>(mod.id, "PlayerType", "NONE");
-
-export function hideHostGame() {
-    trigger(mod.id, "HideHostGameMenu");
-}
-
-export function setIntVal(name: string, value: any) {
-    const parsed = Number.parseInt(value, 10);
-    trigger(mod.id, name, Number.isNaN(parsed) ? 0 : parsed);
-}
-
-export function hostGame() {
-    trigger(mod.id, "HostGame");
-}
-
-export function stopServer() {
-    trigger(mod.id, "StopServer");
-}
-
-export function leaveSession() {
-    trigger(mod.id, "LeaveSession");
-}
-
-function isValidPort(value: number): boolean {
-    return Number.isInteger(value) && value >= MIN_PORT && value <= MAX_PORT;
-}
-
-function translateWithFallback(translate: TranslateFn, key: string, fallback: string): string {
-    const translated = translate(key);
-    return !translated || translated === key ? fallback : translated;
-}
-
-function getStatusText(translate: TranslateFn, status: string): string {
-    return translateWithFallback(translate, `CS2M.UI.JoinStatus[${status}]`, status);
-}
-
-const ModCompatibilityList = ({supports}: { supports: any[] }) => {
-    const {translate} = useLocalization();
-
-    return (
-        <div className={styles.compatibilityList}>
-            {supports.map((s, i) => {
-                let color = "var(--gWarning)";
-                if (s.support === "Supported") color = "var(--gSuccess)";
-                if (s.support === "Unsupported") color = "var(--gDanger)";
-
-                return (
-                    <div key={i} className={styles.item}>
-                        <span>{s.name}</span>
-                        <span style={{color}}>{translate(`CS2M.UI.Compatibility[${s.support}]`)}</span>
-                    </div>
-                );
-            })}
-        </div>
-    );
-};
+const PORT_MIN = 1;
+const PORT_MAX = 65535;
 
 export const HostGameMenu = () => {
-    const visible = useValue(hostMenuVisible);
-    const modSupports = useValue(modSupport);
-    const status = useValue(playerStatus);
-    const type = useValue(playerType);
-    const isServerRunning = type === "SERVER";
-    const isClientSession = type === "CLIENT" && status !== "INACTIVE";
-    const enabled = !isServerRunning && !isClientSession;
-
-    const portValue = useValue(port);
-    const hostPasswordValue = useValue(hostPassword);
-    const usernameValue = useValue(username);
-
-    const {translate} = useLocalization();
-    const statusText = getStatusText(translate, status);
-    const portIsValid = isValidPort(portValue);
-    const hasUsername = !!usernameValue?.trim();
-
-    const validationErrors = React.useMemo(() => {
-        const issues: string[] = [];
-        if (isClientSession) {
-            issues.push(translateWithFallback(translate, "CS2M.UI.Validation.HostBlockedByClient", "Disconnect from current server before hosting."));
-        }
-        if (!portIsValid) {
-            issues.push(
-                translateWithFallback(
-                    translate,
-                    "CS2M.UI.Validation.PortInvalid",
-                    `Port must be between ${MIN_PORT} and ${MAX_PORT}.`
-                )
-            );
-        }
-        if (!hasUsername) {
-            issues.push(
-                translateWithFallback(
-                    translate,
-                    "CS2M.UI.Validation.UsernameRequired",
-                    "Username is required."
-                )
-            );
-        }
-        return issues;
-    }, [hasUsername, isClientSession, portIsValid, translate]);
-
-    const canHost = enabled && validationErrors.length === 0;
+    const visible = useValue(state.hostMenuVisible);
+    const type = useValue(state.playerType);
+    const status = useValue(state.playerStatus);
+    const port = useValue(state.hostPort);
+    const password = useValue(state.hostPassword);
+    const username = useValue(state.username);
+    const modSupport = useValue(state.modSupport);
+    const t = useTranslate();
 
     if (!visible) {
         return null;
     }
 
+    const running = isServerRunning(type);
+    const joining = isClientSession(type, status);
+    const enabled = !running && !joining;
+    const portValid = Number.isInteger(port) && port >= PORT_MIN && port <= PORT_MAX;
+    const hasUsername = !!username?.trim();
+    const canHost = enabled && portValid && hasUsername;
+
+    const onBack = () => {
+        actions.hideHost();
+        actions.showMultiplayerMenu();
+    };
+
     return (
-        <div className={styles.overlay}>
-            <FocusBoundary>
-                <div className={styles.card}>
-                    <div className={styles.header}>
-                        <h2>{translateWithFallback(translate, "CS2M.UI.HostGame", "Host Game")}</h2>
-                        <Button className={styles.closeButton} onClick={hideHostGame}>X</Button>
+        <FocusBoundary>
+            <Panel
+                header={t("CS2M.UI.HostGame", "Host Game")}
+                onClose={onBack}
+                theme={LightOpaqueTheme}
+                transitionSounds={TransitionSounds}>
+                <div className="cs2m-form-body">
+                    <div className="cs2m-section">
+                        <h3 className="cs2m-section-title">{t("CS2M.UI.Host.Session", "Session")}</h3>
+                        <div className="cs2m-summary-row">
+                            <span>{t("CS2M.UI.Host.Mode", "Mode")}</span>
+                            <span>{t("CS2M.UI.Host.Mode.Private", "Private Host")}</span>
+                        </div>
+                        <div className="cs2m-summary-row">
+                            <span>{t("CS2M.UI.Host.JoinToken", "Join Token")}</span>
+                            <span>{t("CS2M.UI.Host.JoinToken.Pending", "Generated after start")}</span>
+                        </div>
                     </div>
 
-                    <div className={styles.body}>
-                        {enabled && validationErrors.length > 0 && (
-                            <div className={styles.hintBox}>
-                                <strong>{translateWithFallback(translate, "CS2M.UI.Validation.Title", "Missing or invalid input:")}</strong>
-                                {validationErrors.map((message, index) => (
-                                    <div key={`${message}-${index}`}>{message}</div>
-                                ))}
-                            </div>
-                        )}
-
-                        <div className={styles.section}>
-                            <div className={styles.sectionTitle}>
-                                {translateWithFallback(translate, "CS2M.UI.Host.Session", "Session")}
-                            </div>
-                            <div className={styles.summaryRow}>
-                                <span>{translateWithFallback(translate, "CS2M.UI.Host.Mode", "Mode")}</span>
-                                <span>{translateWithFallback(translate, "CS2M.UI.Host.Mode.Private", "Private Host")}</span>
-                            </div>
-                            <div className={styles.summaryRow}>
-                                <span>{translateWithFallback(translate, "CS2M.UI.Host.JoinToken", "Join Token")}</span>
-                                <span>{translateWithFallback(translate, "CS2M.UI.Host.JoinToken.Pending", "Generated after start")}</span>
-                            </div>
-                        </div>
-
-                        <div className={styles.section}>
-                            <div className={styles.sectionTitle}>
-                                {translateWithFallback(translate, "CS2M.UI.NetworkConfig", "Network")}
-                            </div>
-                            <InputField
-                                label={translateWithFallback(translate, "CS2M.UI.Port", "Port")}
-                                value={portValue}
-                                disabled={!enabled}
-                                onChange={(val: string) => setIntVal("SetHostPort", val)}
-                            />
-                            <InputField
-                                label={translateWithFallback(translate, "CS2M.UI.Password", "Password")}
-                                value={hostPasswordValue}
-                                type="password"
-                                disabled={!enabled}
-                                onChange={(val: string) => setVal("SetHostPassword", val)}
-                            />
-                        </div>
-
-                        <div className={styles.section}>
-                            <div className={styles.sectionTitle}>
-                                {translateWithFallback(translate, "CS2M.UI.PlayerConfig", "Host Identity")}
-                            </div>
-                            <InputField
-                                label={translateWithFallback(translate, "CS2M.UI.Username", "Username")}
-                                value={usernameValue}
-                                disabled={!enabled}
-                                onChange={(val: string) => setVal("SetUsername", val)}
-                            />
-                        </div>
-
-                        <div className={styles.section}>
-                            <div className={styles.sectionTitle}>
-                                {translateWithFallback(translate, "CS2M.UI.Host.Preflight", "Preflight")}
-                            </div>
-                            <div className={styles.preflightList}>
-                                <div className={styles.preflightItem}>
-                                    <span className={portIsValid ? styles.preflightOk : styles.preflightMissing}>
-                                        {portIsValid ? "OK" : "MISSING"}
-                                    </span>
-                                    <span>{translateWithFallback(translate, "CS2M.UI.Host.Preflight.Port", "Port valid")}</span>
-                                </div>
-                                <div className={styles.preflightItem}>
-                                    <span className={hasUsername ? styles.preflightOk : styles.preflightMissing}>
-                                        {hasUsername ? "OK" : "MISSING"}
-                                    </span>
-                                    <span>{translateWithFallback(translate, "CS2M.UI.Host.Preflight.Username", "Username set")}</span>
-                                </div>
-                                <div className={styles.preflightItem}>
-                                    <span className={isServerRunning ? styles.preflightNeutral : (isClientSession ? styles.preflightMissing : styles.preflightOk)}>
-                                        {isServerRunning ? "RUNNING" : (isClientSession ? "BLOCKED" : "READY")}
-                                    </span>
-                                    <span>{translateWithFallback(translate, "CS2M.UI.Host.Preflight.State", "Host state")}</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className={styles.section}>
-                            <div className={styles.sectionTitle}>
-                                {translateWithFallback(translate, "CS2M.UI.Host.Runtime", "Runtime")}
-                            </div>
-                            <div className={styles.statusLine}>{statusText}</div>
-                        </div>
-
-                        {modSupports.length > 0 && enabled && (
-                            <div className={styles.section}>
-                                <div className={styles.sectionTitle}>
-                                    {translateWithFallback(translate, "CS2M.UI.Compatibility", "Compatibility")}
-                                </div>
-                                <ModCompatibilityList supports={modSupports}/>
-                            </div>
-                        )}
+                    <div className="cs2m-field">
+                        <label>{t("CS2M.UI.Port", "Port")}</label>
+                        <StringInputField
+                            value={port?.toString() ?? ""}
+                            disabled={!enabled}
+                            onChange={actions.setHostPort}
+                        />
                     </div>
 
-                    <div className={styles.footer}>
-                        <Button className={styles.button} onClick={hideHostGame}>
-                            {translateWithFallback(translate, "CS2M.UI.Back", "Back")}
+                    <div className="cs2m-field">
+                        <label>{t("CS2M.UI.Password", "Password")}</label>
+                        <StringInputField
+                            value={password ?? ""}
+                            disabled={!enabled}
+                            onChange={actions.setHostPassword}
+                        />
+                    </div>
+
+                    <div className="cs2m-field">
+                        <label>{t("CS2M.UI.Username", "Username")}</label>
+                        <StringInputField
+                            value={username ?? ""}
+                            disabled={!enabled}
+                            onChange={actions.setUsername}
+                        />
+                    </div>
+
+                    <div className="cs2m-section">
+                        <h3 className="cs2m-section-title">{t("CS2M.UI.Host.Runtime", "Runtime")}</h3>
+                        <div className="cs2m-summary-row">
+                            <span>{t("CS2M.UI.Status", "Status")}</span>
+                            <span>{statusToLabel[status] ?? status}</span>
+                        </div>
+                    </div>
+
+                    {modSupport.length > 0 && (
+                        <div className="cs2m-section">
+                            <h3 className="cs2m-section-title">{t("CS2M.UI.Compatibility", "Compatibility")}</h3>
+                            {modSupport.map((m, i) => (
+                                <div key={i} className="cs2m-summary-row">
+                                    <span>{m.name}</span>
+                                    <span>{compatibilityText(t, m.support)}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="cs2m-form-footer">
+                        <Button variant="flat" onSelect={onBack}>
+                            {t("CS2M.UI.Back", "Back")}
                         </Button>
-                        {isClientSession && (
-                            <Button className={styles.button} onClick={leaveSession}>
-                                {translateWithFallback(translate, "CS2M.UI.LeaveSession", "Leave Session")}
+                        {joining && (
+                            <Button variant="flat" onSelect={actions.leaveSession}>
+                                {t("CS2M.UI.LeaveSession", "Leave Session")}
                             </Button>
                         )}
-                        {isServerRunning ? (
-                            <Button className={`${styles.button} ${styles.primary}`} onClick={stopServer}>
-                                {translateWithFallback(translate, "CS2M.UI.StopServer", "Stop Server")}
+                        {running ? (
+                            <Button variant="primary" onSelect={actions.stopServer}>
+                                {t("CS2M.UI.StopServer", "Stop Server")}
                             </Button>
                         ) : (
-                            <Button className={`${styles.button} ${styles.primary}`} onClick={hostGame} disabled={!canHost}>
-                                {translateWithFallback(translate, "CS2M.UI.StartServer", "Start Server")}
+                            <Button variant="primary" disabled={!canHost} onSelect={actions.hostGame}>
+                                {t("CS2M.UI.StartServer", "Start Server")}
                             </Button>
                         )}
                     </div>
                 </div>
-            </FocusBoundary>
-        </div>
+            </Panel>
+        </FocusBoundary>
     );
 };
-

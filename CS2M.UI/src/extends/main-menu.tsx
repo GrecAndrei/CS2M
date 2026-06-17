@@ -1,70 +1,56 @@
 import {ModuleRegistryExtend} from "cs2/modding";
-import {bindValue, trigger, useValue} from "cs2/api";
-import mod from "../../mod.json";
+import React from "react";
+import {useValue} from "cs2/api";
+import {actions, state} from "../state";
 import {MultiplayerHub} from "../screens/multiplayer-hub";
 import {JoinGameMenu} from "../screens/join-game-menu";
 import {HostGameMenu} from "../screens/host-game-menu";
-import React from "react";
+import {FloatingButton, Tooltip} from "cs2/ui";
+import {FocusBoundary} from "cs2/input";
+import {useTranslate} from "../utils/localization";
 
-export function showMultiplayerMenu() {
-    trigger(mod.id, "ShowMultiplayerMenu");
-}
+const MP_ICON = "Media/Game/Icons/Communications.svg";
 
-const hubMenuVisible = bindValue<boolean>(mod.id, "HubMenuVisible", false);
-const joinMenuVisible = bindValue<boolean>(mod.id, "JoinMenuVisible", false);
-const hostMenuVisible = bindValue<boolean>(mod.id, "HostMenuVisible", false);
-
-// Extend TransitionGroupCoordinator as it is the only place we can put the JoinGameMenu
-// Only extend it if it has 5 children => Main Menu or Pause Menu
-export const MenuUIExtensions : ModuleRegistryExtend = (Component) => {
+export const MenuUIExtensions: ModuleRegistryExtend = (Component) => {
     return (props) => {
         const {children, ...otherProps} = props || {};
-        const hubVisible = useValue(hubMenuVisible);
-        const joinVisible = useValue(joinMenuVisible);
-        const hostVisible = useValue(hostMenuVisible);
+        const hubVisible = useValue(state.hubMenuVisible);
+        const joinVisible = useValue(state.joinMenuVisible);
+        const hostVisible = useValue(state.hostMenuVisible);
         const anyMenuVisible = hubVisible || joinVisible || hostVisible;
+        const t = useTranslate();
+
         const launcher = (
-            <div
-                style={{
-                    position: "fixed",
-                    right: "24px",
-                    bottom: "24px",
-                    zIndex: 9999
-                }}>
-                <button
-                    type="button"
-                    onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        showMultiplayerMenu();
-                    }}
+            <FocusBoundary>
+                <div
                     style={{
-                        border: "none",
-                        borderRadius: "999px",
-                        padding: "10px 16px",
-                        fontSize: "14px",
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        background: "#1f6feb",
-                        color: "#ffffff"
+                        position: "fixed",
+                        right: "44rem",
+                        bottom: "44rem",
+                        zIndex: 1000,
                     }}>
-                    Multiplayer
-                </button>
-            </div>
+                    <Tooltip
+                        tooltip={t("CS2M.UI.Multiplayer", "Multiplayer")}
+                        direction="up"
+                        alignment="center">
+                        <FloatingButton
+                            src={MP_ICON}
+                            focusKey="CS2M-MainMenu-Launcher"
+                            onSelect={actions.showMultiplayerMenu}
+                        />
+                    </Tooltip>
+                </div>
+            </FocusBoundary>
         );
 
-        const menus =
-            <>
-                <MultiplayerHub></MultiplayerHub>
-                <JoinGameMenu></JoinGameMenu>
-                <HostGameMenu></HostGameMenu>
-            </>;
         return (
             <Component {...otherProps}>
                 {children}
                 {!anyMenuVisible && launcher}
-                {menus}
+                <MultiplayerHub />
+                <JoinGameMenu />
+                <HostGameMenu />
             </Component>
-        )
+        );
     };
-}
+};

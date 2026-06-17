@@ -1,0 +1,297 @@
+// Global styles for CS2M mod UI. These are plain class names (no CSS
+// modules) so any screen can use them with `className="cs2m-..."`.
+// Loaded once from src/index.tsx and emitted as part of CS2M.css.
+
+// =============================================================================
+// Form bodies (used by Join / Host panels)
+// =============================================================================
+
+.cs2m-form-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12rem;
+    padding: 16rem 20rem;
+    min-width: 420rem;
+}
+
+.cs2m-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6rem;
+}
+
+.cs2m-field > label {
+    color: var(--menuText1Dimmed, rgba(201, 217, 237, 0.7));
+    font-size: var(--fontSizeXS, 11rem);
+    font-weight: 700;
+    letter-spacing: 0.8rem;
+    text-transform: uppercase;
+}
+
+.cs2m-form-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10rem;
+    margin-top: 8rem;
+}
+
+.cs2m-error-box {
+    background: rgba(233, 95, 74, 0.16);
+    border: 1px solid rgba(233, 95, 74, 0.4);
+    color: #ffb4a8;
+    padding: 10rem 12rem;
+    font-size: var(--fontSizeS, 12rem);
+    border-radius: 4rem;
+
+    > strong {
+        display: block;
+        margin-bottom: 4rem;
+    }
+}
+
+.cs2m-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 6rem;
+    color: var(--menuText1, #fff);
+    font-size: var(--fontSizeS, 12rem);
+
+    > progress {
+        width: 100%;
+        height: 6rem;
+    }
+}
+
+// =============================================================================
+// Hub (Multiplayer main panel)
+// =============================================================================
+
+.cs2m-hub-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16rem;
+    padding: 16rem 20rem 20rem;
+    min-width: 360rem;
+}
+
+.cs2m-hub-status {
+    margin: 0;
+    color: var(--menuText1, #fff);
+    font-size: var(--fontSizeS, 12rem);
+}
+
+.cs2m-hub-actions {
+    display: flex;
+    gap: 10rem;
+}
+
+.cs2m-hub-hint {
+    margin: 0;
+    color: var(--menuText1Dimmed, rgba(201, 217, 237, 0.7));
+    font-size: var(--fontSizeXS, 11rem);
+}
+
+.cs2m-hub-footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 4rem;
+}
+
+// =============================================================================
+// Cooperative overlay (roster, cursors, pings)
+// =============================================================================
+
+.cs2m-coop-canvas {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    overflow: hidden;
+    font-family: var(--fontFamily, inherit);
+}
+
+.cs2m-coop-roster {
+    position: absolute;
+    top: 16rem;
+    right: 16rem;
+    pointer-events: auto;
+    width: 320rem;
+}
+
+.cs2m-roster-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6rem;
+    padding: 4rem;
+}
+
+.cs2m-roster-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 10rem;
+    padding: 6rem 8rem;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 4rem;
+    border: 1px solid transparent;
+
+    &:hover {
+        background: rgba(255, 255, 255, 0.08);
+    }
+}
+
+.cs2m-roster-dot {
+    width: 8rem;
+    height: 8rem;
+    border-radius: 50%;
+    box-shadow: 0 0 6rem currentColor;
+}
+
+.cs2m-roster-name {
+    display: flex;
+    flex-direction: column;
+    font-size: var(--fontSizeS, 12rem);
+    color: var(--menuText1, #fff);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cs2m-roster-status {
+    font-size: var(--fontSizeXS, 11rem);
+    color: var(--menuText1Dimmed, rgba(201, 217, 237, 0.7));
+    margin-top: 2rem;
+}
+
+.cs2m-roster-latency {
+    font-size: var(--fontSizeXS, 11rem);
+    color: var(--menuText1Dimmed, rgba(201, 217, 237, 0.7));
+    font-variant-numeric: tabular-nums;
+}
+
+.cs2m-roster-tp {
+    width: 24rem;
+    height: 24rem;
+    border: 1px solid var(--gPrimary, #5cb6ff);
+    background: transparent;
+    color: var(--gPrimary, #5cb6ff);
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 13rem;
+    line-height: 1;
+
+    &:hover {
+        background: var(--gPrimary, #5cb6ff);
+        color: var(--gText, #fff);
+    }
+}
+
+.cs2m-cursor {
+    position: absolute;
+    transform: translate(-10rem, -10rem);
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4rem;
+    transition: top 0.08s linear, left 0.08s linear;
+    --player-color: #5cb6ff;
+}
+
+.cs2m-cursor-ring {
+    width: 18rem;
+    height: 18rem;
+    border: 2rem solid var(--player-color);
+    border-radius: 50%;
+    box-shadow: 0 0 10rem var(--player-color);
+    position: relative;
+
+    &::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 4rem;
+        height: 4rem;
+        background: #fff;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+    }
+}
+
+.cs2m-cursor-tag {
+    background: rgba(12, 15, 20, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-left: 3rem solid var(--player-color);
+    padding: 4rem 8rem;
+    border-radius: 3rem;
+    display: flex;
+    flex-direction: column;
+    min-width: 90rem;
+}
+
+.cs2m-cursor-name {
+    font-size: var(--fontSizeXS, 11rem);
+    font-weight: 700;
+    color: #fff;
+}
+
+.cs2m-cursor-tool {
+    font-size: var(--fontSizeXS, 11rem);
+    color: rgba(255, 255, 255, 0.55);
+    margin-top: 2rem;
+}
+
+.cs2m-ping {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6rem;
+    --player-color: #ff7c7c;
+}
+
+.cs2m-ping-pulse {
+    width: 40rem;
+    height: 40rem;
+    border: 2rem solid var(--player-color);
+    border-radius: 50%;
+    box-shadow: 0 0 12rem var(--player-color);
+    animation: cs2m-ping-pulse 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+.cs2m-ping-tag {
+    background: rgba(18, 22, 28, 0.92);
+    border: 1rem solid var(--player-color);
+    border-radius: 4rem;
+    padding: 4rem 8rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 80rem;
+}
+
+.cs2m-ping-user {
+    font-size: var(--fontSizeXS, 11rem);
+    font-weight: 700;
+    color: #fff;
+}
+
+.cs2m-ping-dist {
+    font-size: var(--fontSizeXS, 11rem);
+    color: var(--player-color);
+    font-weight: 600;
+    margin-top: 2rem;
+}
+
+@keyframes cs2m-ping-pulse {
+    0% {
+        transform: scale(0.2);
+        opacity: 1;
+    }
+    100% {
+        transform: scale(1.8);
+        opacity: 0;
+    }
+}

@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react";
-import { bindValue, trigger, useValue } from "cs2/api";
+import React, {useEffect, useRef} from "react";
+import {useValue, trigger} from "cs2/api";
+import {getModule} from "cs2/modding";
+import {state} from "../state";
 import mod from "../../mod.json";
-import styles from "./cooperative.module.scss";
 
 interface RemoteCursor {
     playerId: number;
@@ -45,198 +46,168 @@ interface CooperativeData {
     players: RosterPlayer[];
 }
 
-const cooperativeDataBinding = bindValue<string>(mod.id, 'CooperativeData', "{}");
+const LightOpaqueTheme = getModule("game-ui/common/panel/themes/light-opaque.module.scss", "classes");
 
-// Generate stable aesthetic colors for player ids
-function getPlayerColor(playerId: number): string {
-    if (playerId === -1) return "#00f2fe"; // Host neon blue
-    const hue = (playerId * 137.5) % 360;
-    return `hsl(${hue}, 95%, 60%)`;
+const TEAM_COLORS = [
+    "#5cb6ff", "#ffb45c", "#7ce892", "#d27cff",
+    "#ff7c7c", "#ffe07c", "#7cd5ff", "#9eff7c",
+];
+
+function colorFor(playerId: number): string {
+    if (playerId < 0) {
+        return "#5cb6ff";
+    }
+    return TEAM_COLORS[playerId % TEAM_COLORS.length];
 }
 
-// Helper to format tool/prefab names cleanly
-function formatActivity(tool: string, prefab: string): string {
+function describe(tool: string, prefab: string): string {
     if (!tool || tool === "None" || tool === "DefaultToolSystem") {
-        return "Inspecting View";
+        return "Inspecting view";
     }
-    const cleanTool = tool.replace("ToolSystem", "");
     if (prefab) {
         return `Building: ${prefab}`;
     }
-    return `Using: ${cleanTool}`;
+    return `Using: ${tool.replace("ToolSystem", "")}`;
 }
 
-// Synthesise a satisfying futuristic chime using Web Audio API
-function playPingSound() {
+function playPingChime() {
     try {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioCtx) return;
-        
+        const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtx) {
+            return;
+        }
         const ctx = new AudioCtx();
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        
         osc.type = "sine";
         osc.connect(gain);
         gain.connect(ctx.destination);
-        
         const now = ctx.currentTime;
-        
-        // Fast dual sine tone sweeps from 880Hz (A5) to 1320Hz (E6)
         osc.frequency.setValueAtTime(880, now);
         osc.frequency.exponentialRampToValueAtTime(1320, now + 0.12);
-        
         gain.gain.setValueAtTime(0.18, now);
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
-        
         osc.start(now);
         osc.stop(now + 0.3);
-    } catch (e) {
-        // Safe fail-silent if AudioContext is blocked or unsupported
+    } catch {
+        // Audio blocked or unavailable; safe to ignore.
     }
 }
 
-export const CooperativeOverlay = () => {
-    const rawData = useValue(cooperativeDataBinding);
-    
-    let data: CooperativeData = { cursors: [], pings: [], players: [] };
-    try {
-        if (rawData) {
-            data = JSON.parse(rawData);
-        }
-    } catch (e) {
-        // Safe fallback on initialization
+interface RosterProps {
+    players: RosterPlayer[];
+    localPlayerId: number;
+}
+
+const RosterHUD = ({players, localPlayerId}: RosterProps) => {
+    if (players.length === 0) {
+        return null;
     }
-
-    const [lastPingCount, setLastPingCount] = useState(0);
-
-    // Audio chime trigger hook
-    useEffect(() => {
-        const pingCount = data.pings?.length ?? 0;
-        if (pingCount > lastPingCount) {
-            playPingSound();
-        }
-        setLastPingCount(pingCount);
-    }, [data.pings, lastPingCount]);
-
-    const handleTeleport = (playerId: number) => {
-        trigger(mod.id, "TeleportToPlayer", playerId);
-    };
-
-    const localPlayerId = data.players.find(p => p.type === "SERVER" || p.playerId === 0)?.playerId ?? 0;
-
     return (
-        <div className={styles.overlayCanvas}>
-            
-            {/* 1. REAL-TIME PLAYER ROSTER HUD */}
-            {data.players && data.players.length > 0 && (
-                <div className={styles.rosterHud}>
-                    <div className={styles.hudHeader}>
-                        <span className={styles.hudTitle}>Co-Op Lobby</span>
-                        <span className={styles.playerCount}>
-                            {data.players.length} {data.players.length === 1 ? "Builder" : "Builders"}
-                        </span>
-                    </div>
-
-                    <div className={styles.playerList}>
-                        {data.players.map((player) => {
-                            const isLocal = player.playerId === localPlayerId;
-                            const playerColor = getPlayerColor(player.playerId);
-                            return (
-                                <div key={player.playerId} className={styles.playerRow}>
-                                    <div className={styles.playerInfo}>
-                                        <span 
-                                            className={styles.statusDot} 
-                                            style={{ background: playerColor, boxShadow: `0 0 8px ${playerColor}` }} 
-                                        />
-                                        <div className={styles.nameContainer}>
-                                            <span className={styles.playerName}>
-                                                {player.username} {isLocal && "(You)"}
-                                            </span>
-                                            <span className={styles.playerStatusText}>
-                                                {formatActivity(player.tool, player.prefab)}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    <div className={styles.actions}>
-                                        <span className={styles.latency}>
-                                            {player.latency > 0 ? `${player.latency}ms` : "Host"}
-                                        </span>
-                                        
-                                        {!isLocal && (
-                                            <button 
-                                                className={styles.teleportBtn}
-                                                onClick={() => handleTeleport(player.playerId)}
-                                                title={`Teleport camera to ${player.username}`}
-                                            >
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                                    <circle cx="12" cy="12" r="10" />
-                                                    <circle cx="12" cy="12" r="3" />
-                                                    <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-                                                </svg>
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            )}
-
-            {/* 2. REAL-TIME 3D PROJECTED GHOST CURSORS */}
-            {data.cursors && data.cursors.map((cursor) => {
-                if (!cursor.visible) return null;
-                const playerColor = getPlayerColor(cursor.playerId);
-                return (
-                    <div 
-                        key={`cursor-${cursor.playerId}`}
-                        className={styles.ghostCursor}
-                        style={{ 
-                            left: `${cursor.screenX}%`, 
-                            top: `${cursor.screenY}%`,
-                            ["--player-color" as any]: playerColor 
-                        }}
-                    >
-                        <div className={styles.pointerRing} />
-                        <div className={styles.cursorTag}>
-                            <span className={styles.name}>{cursor.username}</span>
-                            {(cursor.prefab || cursor.tool) && (
-                                <span className={styles.tool}>
-                                    {cursor.prefab ? cursor.prefab : cursor.tool.replace("ToolSystem", "")}
-                                </span>
+        <div className={`${LightOpaqueTheme.panel} cs2m-coop-roster`}>
+            <div className={LightOpaqueTheme.titleBar}>
+                <span className={LightOpaqueTheme.title}>Co-op lobby</span>
+            </div>
+            <div className={`${LightOpaqueTheme.content} cs2m-roster-list`}>
+                {players.map((p) => {
+                    const isLocal = p.playerId === localPlayerId;
+                    const color = colorFor(p.playerId);
+                    return (
+                        <div key={p.playerId} className="cs2m-roster-row">
+                            <span className="cs2m-roster-dot" style={{background: color}}/>
+                            <span className="cs2m-roster-name">
+                                {p.username}{isLocal ? " (You)" : ""}
+                                <span className="cs2m-roster-status">{describe(p.tool, p.prefab)}</span>
+                            </span>
+                            <span className="cs2m-roster-latency">
+                                {p.latency > 0 ? `${p.latency}ms` : "Host"}
+                            </span>
+                            {!isLocal && (
+                                <button
+                                    className="cs2m-roster-tp"
+                                    onClick={() => trigger(mod.id, "TeleportToPlayer", p.playerId)}
+                                    title={`Teleport to ${p.username}`}>
+                                    ◎
+                                </button>
                             )}
                         </div>
-                    </div>
-                );
-            })}
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
 
-            {/* 3. INTERACTIVE WORLD PING BEACONS */}
-            {data.pings && data.pings.map((ping, idx) => {
-                if (!ping.visible) return null;
-                const playerColor = getPlayerColor(ping.playerId);
-                return (
+export const CooperativeOverlay = () => {
+    const raw = useValue(state.cooperativeData);
+
+    let data: CooperativeData = {cursors: [], pings: [], players: []};
+    try {
+        if (raw) {
+            data = JSON.parse(raw);
+        }
+    } catch {
+        // Ignore corrupt snapshot, render empty.
+    }
+
+    const lastPingCount = useRef(0);
+    useEffect(() => {
+        const count = data.pings?.length ?? 0;
+        if (count > lastPingCount.current) {
+            playPingChime();
+        }
+        lastPingCount.current = count;
+    }, [data.pings]);
+
+    const localPlayerId = data.players.find(
+        (p) => p.type === "SERVER" || p.playerId === 0,
+    )?.playerId ?? 0;
+
+    return (
+        <div className="cs2m-coop-canvas">
+            <RosterHUD players={data.players} localPlayerId={localPlayerId}/>
+
+            {data.cursors?.map((c) =>
+                c.visible ? (
                     <div
-                        key={`ping-${ping.playerId}-${idx}`}
-                        className={styles.pingBeacon}
-                        style={{ 
-                            left: `${ping.screenX}%`, 
-                            top: `${ping.screenY}%`
-                        }}
-                    >
-                        <div className={styles.pulseCircle}>
-                            <div className={styles.ring} style={{ borderColor: playerColor, boxShadow: `0 0 15px ${playerColor}` }} />
-                            <div className={styles.coreDot} style={{ borderColor: playerColor, boxShadow: `0 0 10px ${playerColor}` }} />
-                        </div>
-                        <div className={styles.pingLabel} style={{ borderColor: playerColor }}>
-                            <span className={styles.pingUser}>{ping.username}</span>
-                            <span className={styles.pingDist}>{Math.round(ping.distance)}m</span>
-                        </div>
+                        key={`cursor-${c.playerId}`}
+                        className="cs2m-cursor"
+                        style={{
+                            left: `${c.screenX}%`,
+                            top: `${c.screenY}%`,
+                            ["--player-color" as any]: colorFor(c.playerId),
+                        }}>
+                        <span className="cs2m-cursor-ring"/>
+                        <span className="cs2m-cursor-tag">
+                            <span className="cs2m-cursor-name">{c.username}</span>
+                            {(c.prefab || c.tool) && (
+                                <span className="cs2m-cursor-tool">
+                                    {c.prefab || c.tool.replace("ToolSystem", "")}
+                                </span>
+                            )}
+                        </span>
                     </div>
-                );
-            })}
+                ) : null,
+            )}
 
+            {data.pings?.map((p, idx) =>
+                p.visible ? (
+                    <div
+                        key={`ping-${p.playerId}-${idx}`}
+                        className="cs2m-ping"
+                        style={{
+                            left: `${p.screenX}%`,
+                            top: `${p.screenY}%`,
+                            ["--player-color" as any]: colorFor(p.playerId),
+                        }}>
+                        <span className="cs2m-ping-pulse"/>
+                        <span className="cs2m-ping-tag">
+                            <span className="cs2m-ping-user">{p.username}</span>
+                            <span className="cs2m-ping-dist">{Math.round(p.distance)}m</span>
+                        </span>
+                    </div>
+                ) : null,
+            )}
         </div>
     );
 };
