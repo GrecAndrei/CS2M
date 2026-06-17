@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
-// M1 placeholder handler. Replies to a PortCheckRequestCommand with a
-// hard-coded PortCheckResultCommand. Replaced in M3 by the real
-// background probe pipeline.
+// Receives PortCheckRequestCommand, enqueues a probe work item for
+// the PortReachableChecker worker, and acknowledges the mod
+// immediately with a queued reply. The worker sends the real
+// PortCheckResultCommand once the TCP probe completes.
 
 using System.Net;
 using CS2M.ApiServer.Core.Commands;
+using CS2M.ApiServer.Core.Dispatch;
 using Microsoft.Extensions.Logging;
 
 namespace CS2M.ApiServer.Protocol.Dispatch.Handlers;
@@ -12,25 +14,67 @@ namespace CS2M.ApiServer.Protocol.Dispatch.Handlers;
 public sealed class PortCheckRequestHandler : ApiCommandHandler<PortCheckRequestCommand>
 {
     private readonly IApiCommandReplier _replier;
+    private readonly IPortCheckEnqueuer _enqueuer;
     private readonly ILogger<PortCheckRequestHandler> _logger;
 
-    public PortCheckRequestHandler(IApiCommandReplier replier, ILogger<PortCheckRequestHandler> logger)
+    public PortCheckRequestHandler(
+        IApiCommandReplier replier,
+        IPortCheckEnqueuer enqueuer,
+        ILogger<PortCheckRequestHandler> logger)
     {
         _replier = replier;
+        _enqueuer = enqueuer;
         _logger = logger;
     }
 
     protected override async Task HandleAsync(PortCheckRequestCommand command, IPEndPoint remote, CancellationToken cancellationToken)
     {
-        _logger.LogInformation(
-            "Received PortCheckRequestCommand for port {Port} from {Peer}",
-            command.Port, remote);
+        if (command.Port is < 1 or > 65535)
+        {
+            _logger.LogWarning(
+                "Rejecting PortCheckRequestCommand from {Peer}: Port {Port} is out of range",
+                remote, command.Port);
+            await _replier.ReplyAsync(new PortCheckResultCommand
+            {
+                State = PortCheckResult.Error,
+                Message = "invalid Port"
+            }, remote, cancellationToken).ConfigureAwait(false);
+            return;
+        }
 
-        var reply = new PortCheckResultCommand
+        // The mod's PortCheckRequestCommand does not currently include
+        // a token; the probe runs against the requester's remote
+        // endpoint on the requested port. Once the mod adds an optional
+        // Token field the handler will cross-reference it against the
+        // servers table for richer responses.
+        var work = new EnqueuedPortCheck(
+            Token: string.Empty,
+            Port: command.Port,
+            EnqueuedAt: DateTimeOffset.UtcNow);
+
+        if (!_enqueuer.TryEnqueue(work))
+        {
+            _logger.LogWarning(
+                "PortCheckQueue is full; rejecting probe for {Peer}:{Port}",
+                remote, command.Port);
+            await _replier.ReplyAsync(new PortCheckResultCommand
+            {
+                State = PortCheckResult.Error,
+                Message = "probe queue full; try again later"
+            }, remote, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        _logger.LogInformation(
+            "Enqueued port check for {Peer}:{Port}",
+            remote, command.Port);
+
+        await _replier.ReplyAsync(new PortCheckResultCommand
         {
             State = PortCheckResult.Error,
-            Message = "probe queued (M1 stub)"
-        };
-        await _replier.ReplyAsync(reply, remote, cancellationToken).ConfigureAwait(false);
+            Message = "probe queued"
+        }, remote, cancellationToken).ConfigureAwait(false);
     }
+
+    private sealed record EnqueuedPortCheck(string Token, int Port, DateTimeOffset EnqueuedAt) : IPortCheckWorkItem;
 }

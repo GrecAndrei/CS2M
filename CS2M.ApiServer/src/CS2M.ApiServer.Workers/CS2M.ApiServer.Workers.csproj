@@ -11,8 +11,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\CS2M.ApiServer.Core\CS2M.ApiServer.Core.csproj" />
-    <ProjectReference Include="..\CS2M.ApiServer.Protocol\CS2M.ApiServer.Protocol.csproj" />
     <ProjectReference Include="..\CS2M.ApiServer.Storage\CS2M.ApiServer.Storage.csproj" />
   </ItemGroup>
 

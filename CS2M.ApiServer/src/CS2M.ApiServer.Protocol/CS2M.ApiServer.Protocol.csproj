@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CS2M.ApiServer.Core\CS2M.ApiServer.Core.csproj" />
+    <ProjectReference Include="..\CS2M.ApiServer.Storage\CS2M.ApiServer.Storage.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

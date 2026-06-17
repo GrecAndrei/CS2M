@@ -3,11 +3,16 @@
 // handler. The dispatcher also implements IUdpDatagramSink so the
 // listener can hand raw datagrams to it without coupling to the
 // transport.
+//
+// Handlers may take scoped dependencies (DB contexts, etc.), so the
+// dispatcher creates a DI scope per datagram and resolves handlers
+// from that scope. The scope is disposed when the handler completes.
 
 using System.Net;
 using CS2M.ApiServer.Core.Commands;
 using CS2M.ApiServer.Protocol.Codec;
 using CS2M.ApiServer.Protocol.Udp;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace CS2M.ApiServer.Protocol.Dispatch;
@@ -29,17 +34,17 @@ public abstract class ApiCommandHandler<T> : IApiCommandHandler where T : ApiCom
 public sealed class ApiCommandDispatcher : IUdpDatagramSink
 {
     private readonly IApiCommandCodec _codec;
-    private readonly IReadOnlyDictionary<Type, IApiCommandHandler> _handlers;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ApiCommandDispatcher> _logger;
 
     public ApiCommandDispatcher(
         IApiCommandCodec codec,
-        IEnumerable<IApiCommandHandler> handlers,
+        IServiceScopeFactory scopeFactory,
         ILogger<ApiCommandDispatcher> logger)
     {
         _codec = codec;
+        _scopeFactory = scopeFactory;
         _logger = logger;
-        _handlers = handlers.ToDictionary(h => h.CommandType);
     }
 
     public void Handle(UdpDatagram datagram)
@@ -52,15 +57,29 @@ public sealed class ApiCommandDispatcher : IUdpDatagramSink
             return;
         }
 
-        var type = command.GetType();
-        if (!_handlers.TryGetValue(type, out var handler))
+        _ = Task.Run(async () =>
         {
-            _logger.LogWarning(
-                "No handler registered for command {CommandType} from {Peer}",
-                type.Name, datagram.RemoteEndPoint);
-            return;
-        }
-
-        _ = Task.Run(() => handler.HandleAsync(command, datagram.RemoteEndPoint, CancellationToken.None));
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var handlers = scope.ServiceProvider.GetServices<IApiCommandHandler>();
+            var handler = handlers.FirstOrDefault(h => h.CommandType == command.GetType());
+            if (handler is null)
+            {
+                _logger.LogWarning(
+                    "No handler registered for command {CommandType} from {Peer}",
+                    command.GetType().Name, datagram.RemoteEndPoint);
+                return;
+            }
+            try
+            {
+                await handler.HandleAsync(command, datagram.RemoteEndPoint, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Handler {HandlerType} threw while processing {CommandType} from {Peer}",
+                    handler.GetType().Name, command.GetType().Name, datagram.RemoteEndPoint);
+            }
+        });
     }
 }

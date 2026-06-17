@@ -24,4 +24,14 @@
     <ProjectReference Include="..\CS2M.ApiServer.Core\CS2M.ApiServer.Core.csproj" />
   </ItemGroup>
 
+  <!--
+    Migrations live in ../../db/migrations so the Storage project
+    owns no migration files itself. EF will compile every .cs file
+    under that directory tree into the assembly at build time.
+  -->
+  <ItemGroup>
+    <Compile Include="..\..\db\migrations\**\*.cs" LinkBase="db\migrations" />
+    <EmbeddedResource Include="..\..\db\migrations\**\*.cs" LinkBase="db\migrations" />
+  </ItemGroup>
+
 </Project>
