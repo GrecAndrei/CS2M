@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+**/.vs/
+**/TestResults/
+**/node_modules/
+*.user
+*.suo
+.git/
+.github/
+README.md

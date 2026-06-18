@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: MIT
+# Local development environment for the CS2M API server.
+#
+# Usage:
+#   docker compose up         # start everything
+#   docker compose down -v    # stop and wipe the database
+#
+# Services:
+#   api-server   — the UDP/HTTP backend (build from Dockerfile)
+#   postgres     — PostgreSQL 16 for persistence
+#   adminer      — web-based database browser (port 8081)
+
+services:
+  api-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "4242:4242/udp"
+      - "8080:8080/tcp"
+    environment:
+      - ConnectionStrings__Postgres=Host=postgres;Port=5432;Username=cs2m;Password=cs2m;Database=cs2m
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: cs2m
+      POSTGRES_PASSWORD: cs2m
+      POSTGRES_DB: cs2m
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cs2m"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  adminer:
+    image: adminer
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+
+volumes:
+  pgdata:

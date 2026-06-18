@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: MIT
+# Build + test on every push to the feature/api-server branch or
+# any PR that touches CS2M.ApiServer/.
+
+name: CI
+
+on:
+  push:
+    branches:
+      - feature/api-server
+    paths:
+      - "CS2M.ApiServer/**"
+  pull_request:
+    paths:
+      - "CS2M.ApiServer/**"
+
+defaults:
+  run:
+    working-directory: CS2M.ApiServer
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore ApiServer.sln
+
+      - name: Build
+        run: dotnet build ApiServer.sln --configuration Release --no-restore
+
+      - name: Format check
+        run: dotnet format --verify-no-changes ApiServer.sln --no-restore
+
+      - name: Test
+        run: dotnet test ApiServer.sln --configuration Release --no-build \
+          --logger trx \
+          --collect "XPlat Code Coverage" \
+          --results-directory ./TestResults
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: CS2M.ApiServer/TestResults/**/*
