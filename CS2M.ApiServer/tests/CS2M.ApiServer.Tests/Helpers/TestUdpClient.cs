@@ -6,6 +6,7 @@
 using System.Net;
 using System.Net.Sockets;
 using CS2M.ApiServer.Core.Commands;
+using CS2M.ApiServer.Core.Dispatch;
 using CS2M.ApiServer.Protocol.Codec;
 using MessagePack;
 

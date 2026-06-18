@@ -5,26 +5,10 @@
 // ApiCommandBase-derived command as a MessagePack payload.
 
 using CS2M.ApiServer.Core.Commands;
+using CS2M.ApiServer.Core.Dispatch;
 using MessagePack;
 
 namespace CS2M.ApiServer.Protocol.Codec;
-
-public interface IApiCommandCodec
-{
-    /// <summary>
-    ///     Encode a command to its wire bytes. Output is suitable for a
-    ///     single UDP datagram.
-    /// </summary>
-    byte[] Encode(ApiCommandBase command);
-
-    /// <summary>
-    ///     Try to decode a datagram into its concrete command type.
-    ///     Returns <c>false</c> (and <c>null</c>) on any deserialization
-    ///     failure, e.g. truncated payload, unknown discriminator, or
-    ///     a type we don't recognise.
-    /// </summary>
-    bool TryDecode(ReadOnlySpan<byte> datagram, out ApiCommandBase? command);
-}
 
 public sealed class ApiCommandCodec : IApiCommandCodec
 {

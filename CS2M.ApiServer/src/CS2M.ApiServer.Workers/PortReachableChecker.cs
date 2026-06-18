@@ -2,18 +2,12 @@
 // Consumes PortCheckWorkItem from the queue, opens a TCP connection
 // to the work item's target endpoint, and reports back over UDP to
 // the game server that originally asked for the probe.
-//
-// Parallelism is bounded with SemaphoreSlim(maxParallelProbes) so
-// the worker can't be tricked into opening thousands of sockets at
-// once. Each probe uses TcpClient.ConnectAsync with the configured
-// timeout so a slow / unreachable target doesn't pin a worker slot.
 
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using CS2M.ApiServer.Core.Commands;
 using CS2M.ApiServer.Core.Dispatch;
-using CS2M.ApiServer.Protocol.Codec;
 using CS2M.ApiServer.Workers.Channels;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -25,7 +19,7 @@ public sealed class PortReachableChecker : BackgroundService
 {
     private readonly PortCheckQueue _queue;
     private readonly IApiCommandCodec _codec;
-    private readonly Func<IProbeReplyChannel> _replyChannel;
+    private readonly IProbeReplyChannel _replyChannel;
     private readonly ILogger<PortReachableChecker> _logger;
     private readonly PortCheckQueueOptions _options;
     private readonly SemaphoreSlim _gate;
@@ -33,7 +27,7 @@ public sealed class PortReachableChecker : BackgroundService
     public PortReachableChecker(
         PortCheckQueue queue,
         IApiCommandCodec codec,
-        Func<IProbeReplyChannel> replyChannel,
+        IProbeReplyChannel replyChannel,
         IOptions<PortCheckQueueOptions> options,
         ILogger<PortReachableChecker> logger)
     {
@@ -54,12 +48,7 @@ public sealed class PortReachableChecker : BackgroundService
         var tasks = new List<Task>();
         await foreach (var item in _queue.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
         {
-            // Run each probe in a separate task so the SemaphoreSlim
-            // throttles real concurrency. Awaiting the gate inside
-            // the loop would serialize everything.
             tasks.Add(RunProbeAsync(item, stoppingToken));
-            // Periodically clean up completed tasks so the list
-            // doesn't grow forever under load.
             if (tasks.Count >= 64)
             {
                 await Task.WhenAll(tasks).ConfigureAwait(false);
@@ -85,12 +74,10 @@ public sealed class PortReachableChecker : BackgroundService
                 "Probe complete {Target}:{Port} state={State} latency={LatencyMs}ms msg={Message}",
                 item.LocalIp, item.Port, state, sw.ElapsedMilliseconds, message);
 
-            // Send the result back to the game server's last known
-            // endpoint (which is where the PortCheckRequest came from).
             var replyTarget = new IPEndPoint(IPAddress.Parse(item.LocalIp), item.LocalPort);
             try
             {
-                await _replyChannel().SendAsync(
+                await _replyChannel.SendAsync(
                     new PortCheckResultCommand { State = state, Message = message },
                     replyTarget,
                     cancellationToken).ConfigureAwait(false);
@@ -132,9 +119,6 @@ public sealed class PortReachableChecker : BackgroundService
         }
         catch (SocketException ex)
         {
-            // 10061 = Connection refused (port closed locally).
-            // 10060 = Connection timed out (filtered / no route).
-            // 10065 = No route to host.
             return ex.SocketErrorCode switch
             {
                 SocketError.ConnectionRefused => (PortCheckResult.Unreachable, "connection refused"),
@@ -149,14 +133,4 @@ public sealed class PortReachableChecker : BackgroundService
             return (PortCheckResult.Error, $"probe failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
-}
-
-/// <summary>
-///     Abstraction over the UDP listener so the worker can reply
-///     to a game server without taking a direct dependency on
-///     the listener type. The listener implements it natively.
-/// </summary>
-public interface IProbeReplyChannel
-{
-    Task SendAsync(ApiCommandBase command, IPEndPoint remote, CancellationToken cancellationToken);
 }

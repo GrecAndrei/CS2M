@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // ASP.NET Core host for the CS2M API server.
 
+using CS2M.ApiServer.Core.Dispatch;
 using CS2M.ApiServer.Protocol.Codec;
 using CS2M.ApiServer.Protocol.Dispatch;
 using CS2M.ApiServer.Protocol.Dispatch.Handlers;
@@ -55,6 +56,7 @@ builder.Services.AddSingleton<CS2M.ApiServer.Core.Dispatch.IPortCheckEnqueuer>(s
 // Codec + listener + dispatcher.
 builder.Services.AddSingleton<IApiCommandCodec, ApiCommandCodec>();
 builder.Services.AddSingleton<ApiUdpListener>();
+builder.Services.AddSingleton<CS2M.ApiServer.Core.Dispatch.IProbeReplyChannel>(sp => sp.GetRequiredService<ApiUdpListener>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ApiUdpListener>());
 builder.Services.AddSingleton<IApiCommandReplier>(sp => new ApiCommandReplier(
     sp.GetRequiredService<IApiCommandCodec>(),
@@ -65,7 +67,10 @@ builder.Services.AddScoped<IApiCommandHandler, ServerRegistrationHandler>();
 builder.Services.AddScoped<IApiCommandHandler, PortCheckRequestHandler>();
 
 // Background workers.
+builder.Services.Configure<CS2M.ApiServer.Workers.StaleServerReaperOptions>(
+    builder.Configuration.GetSection("StaleServerReaper"));
 builder.Services.AddHostedService<CS2M.ApiServer.Workers.PortReachableChecker>();
+builder.Services.AddHostedService<CS2M.ApiServer.Workers.StaleServerReaper>();
 
 // REST API surface.
 builder.Services.AddControllers();

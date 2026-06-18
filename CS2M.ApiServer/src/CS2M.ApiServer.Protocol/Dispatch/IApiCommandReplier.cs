@@ -11,7 +11,7 @@
 
 using System.Net;
 using CS2M.ApiServer.Core.Commands;
-using CS2M.ApiServer.Protocol.Codec;
+using CS2M.ApiServer.Core.Dispatch;
 using CS2M.ApiServer.Protocol.Udp;
 
 namespace CS2M.ApiServer.Protocol.Dispatch;

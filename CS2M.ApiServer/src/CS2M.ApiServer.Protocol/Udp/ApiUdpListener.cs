@@ -12,7 +12,7 @@
 using System.Net;
 using System.Net.Sockets;
 using CS2M.ApiServer.Core.Commands;
-using CS2M.ApiServer.Workers;
+using CS2M.ApiServer.Core.Dispatch;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -44,15 +44,18 @@ public sealed class ApiUdpListener : BackgroundService, IProbeReplyChannel
     private readonly ILogger<ApiUdpListener> _logger;
     private readonly UdpListenerOptions _options;
     private readonly IUdpDatagramSink _sink;
+    private readonly IApiCommandCodec _codec;
     private UdpClient? _client;
 
     public ApiUdpListener(
         IOptions<UdpListenerOptions> options,
         IUdpDatagramSink sink,
+        IApiCommandCodec codec,
         ILogger<ApiUdpListener> logger)
     {
         _options = options.Value;
         _sink = sink;
+        _codec = codec;
         _logger = logger;
     }
 
