@@ -10,6 +10,7 @@ using CS2M.ApiServer.Storage;
 using CS2M.ApiServer.Storage.Repositories;
 using CS2M.ApiServer.Workers.Channels;
 using Microsoft.EntityFrameworkCore;
+using Prometheus;
 using Serilog;
 using Serilog.Events;
 
@@ -28,6 +29,7 @@ builder.Host.UseSerilog((context, services, configuration) => configuration
 
 // Options.
 builder.Services.Configure<UdpListenerOptions>(builder.Configuration.GetSection("Udp"));
+builder.Services.Configure<UdpRateLimiterOptions>(builder.Configuration.GetSection("UdpRateLimiter"));
 
 // PostgreSQL via EF Core 8.
 var connectionString = builder.Configuration.GetConnectionString("Postgres")
@@ -61,8 +63,14 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<ApiUdpListener>())
 builder.Services.AddSingleton<IApiCommandReplier>(sp => new ApiCommandReplier(
     sp.GetRequiredService<IApiCommandCodec>(),
     () => sp.GetRequiredService<ApiUdpListener>()));
-builder.Services.AddSingleton<IUdpDatagramSink, ApiCommandDispatcher>();
 builder.Services.AddSingleton<ApiCommandDispatcher>();
+builder.Services.AddSingleton<IUdpDatagramSink>(sp =>
+{
+    var inner = sp.GetRequiredService<ApiCommandDispatcher>();
+    var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<UdpRateLimiterOptions>>();
+    var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<UdpRateLimiter>>();
+    return new UdpRateLimiter(inner, options, logger);
+});
 builder.Services.AddScoped<IApiCommandHandler, ServerRegistrationHandler>();
 builder.Services.AddScoped<IApiCommandHandler, PortCheckRequestHandler>();
 
@@ -76,6 +84,8 @@ builder.Services.AddHostedService<CS2M.ApiServer.Workers.StaleServerReaper>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// Prometheus metrics — captured on the main HTTP endpoint at /metrics.
 
 // Build the app.
 var app = builder.Build();
@@ -119,7 +129,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseHttpMetrics();
 app.MapControllers();
+app.MapMetrics();
 
 // Liveness and readiness probes.
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
